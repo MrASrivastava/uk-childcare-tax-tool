@@ -1,0 +1,57 @@
+{
+  "name": "uk-childcare-tax-tool",
+  "private": false,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "jspdf": "^4.2.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "recharts": "^3.8.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^24.12.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "vite": "^8.0.0"
+  },
+  "description": "Free open-source calculator for UK parents navigating the \u00a3100k childcare cliff edge, Tax-Free Childcare, 30-hour free childcare, and HICBC",
+  "keywords": [
+    "uk-tax",
+    "childcare",
+    "childcare-cliff",
+    "tax-free-childcare",
+    "tfc",
+    "30-hours-free-childcare",
+    "hicbc",
+    "child-benefit",
+    "salary-sacrifice",
+    "adjusted-net-income",
+    "ani",
+    "pension",
+    "uk-personal-finance",
+    "financial-planning",
+    "typescript",
+    "react",
+    "income-tax"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MrASrivastava/uk-childcare-tax-tool.git"
+  },
+  "license": "MIT"
+}

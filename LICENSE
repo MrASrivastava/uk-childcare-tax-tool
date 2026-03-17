@@ -1,0 +1,39 @@
+MIT License
+
+Copyright (c) 2025 UK Childcare Tax Tool Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+ADDITIONAL DISCLAIMER
+
+This software is provided for educational and planning purposes only. It is
+not financial advice, tax advice, or legal advice of any kind. The outputs
+produced by this software are estimates based on simplified tax modelling and
+may not reflect all aspects of any individual's personal tax position.
+
+Tax law, rates, thresholds, and eligibility criteria change each year. The
+authors and contributors make no representation that the calculations produced
+by this software are accurate, complete, or current. Always verify figures
+with HMRC's official tools and/or a qualified financial adviser, tax adviser,
+or accountant before making any financial decision.
+
+The authors and contributors accept no liability whatsoever for any financial
+decisions made on the basis of this software's output.
