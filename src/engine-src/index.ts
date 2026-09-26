@@ -93,7 +93,12 @@ export {
 
 export type { ChildAgeGroupResult, MinimumIncomeTest } from "./engine/eligibility";
 
-export { computeFreeHoursForChild } from "./engine/eligibility";
+export {
+  computeFreeHoursForChild,
+  receptionStartDate,
+  fundedHoursEndDate,
+  taxYearTermStarts,
+} from "./engine/eligibility";
 
 export { generateMarginalRateChart, computeCrossoverANI } from "./engine/calculator";
 export type { AtRiskThreshold } from "./types/output";

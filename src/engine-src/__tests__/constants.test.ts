@@ -65,7 +65,7 @@ describe("free hours valued at the provider's rate (#13)", () => {
   const base = {
     parentA: parent(50_000),
     parentB: parent(40_000, {}, "Parent B"),
-    children: [child("2021-06-15")], // aged 3–4 through 2025/26
+    children: [child("2022-02-15")], // aged 3–4 for every term of 2025/26
   };
   it("uses providerHourlyRates when given", () => {
     const r = calculate(household({ ...base, providerHourlyRates: { under2: 15, age2: 12, age3to4: 10 } }));

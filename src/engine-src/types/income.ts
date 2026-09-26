@@ -416,6 +416,13 @@ export interface ChildInfo {
    * evenly across children of Tax-Free Childcare age.
    */
   annualChildcareCost?: number;
+
+  /**
+   * TRUE if the child will not start reception in the September after their
+   * 4th birthday (e.g. a summer-born child whose start is deferred). Funded
+   * hours then run until compulsory school age instead.
+   */
+  deferredReception?: boolean;
 }
 
 // ---------------------------------------------------------------------------

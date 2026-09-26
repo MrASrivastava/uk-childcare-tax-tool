@@ -249,9 +249,14 @@ export function computeCrossoverANI(
 export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   const config = getTaxYearConfig(inputs.taxYear);
   const localRates = inputs.providerHourlyRates ?? inputs.localHourlyRates ?? DEFAULT_LOCAL_HOURLY_RATES;
-  const referenceDate = inputs.asOfDate
-    ? new Date(inputs.asOfDate + "T00:00:00Z")
-    : new Date(); // Today — determines child age groups
+  // Date at which current status (age groups, eligible child counts) is shown:
+  // asOfDate or today, clamped into the selected tax year so that choosing a
+  // past or future year uses the children's ages in that year. Annual values
+  // are built up term by term / quarter by quarter across the tax year.
+  const today = inputs.asOfDate ? new Date(inputs.asOfDate + "T00:00:00Z") : new Date();
+  const taxYearStart = new Date(Date.UTC(parseInt(inputs.taxYear.slice(0, 4), 10), 3, 6));
+  const taxYearEnd = new Date(Date.UTC(parseInt(inputs.taxYear.slice(0, 4), 10) + 1, 3, 5));
+  const referenceDate = today < taxYearStart ? taxYearStart : today > taxYearEnd ? taxYearEnd : today;
 
   const warnings: string[] = [];
 

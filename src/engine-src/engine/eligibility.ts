@@ -129,6 +129,36 @@ export function compulsorySchoolAgeDate(dateOfBirth: string): Date {
 }
 
 /**
+ * receptionStartDate
+ *
+ * Most children start reception in the September after their 4th birthday
+ * (the school year covering their 5th birthday). Returns that 1 September.
+ */
+export function receptionStartDate(dateOfBirth: string): Date {
+  const dob = new Date(dateOfBirth + "T00:00:00Z");
+  const fourth = new Date(Date.UTC(dob.getUTCFullYear() + 4, dob.getUTCMonth(), dob.getUTCDate()));
+  const sept = new Date(Date.UTC(fourth.getUTCFullYear(), 8, 1));
+  return fourth < sept ? sept : new Date(Date.UTC(fourth.getUTCFullYear() + 1, 8, 1));
+}
+
+/**
+ * fundedHoursEndDate
+ *
+ * Funded early years entitlement ends when the child starts in a reception
+ * class or reaches compulsory school age (the term after their 5th birthday),
+ * whichever comes first. Unless reception is deferred, that is the
+ * September after the 4th birthday.
+ *
+ * rules.md §2.2.1.
+ */
+export function fundedHoursEndDate(child: ChildInfo): Date {
+  const csa = compulsorySchoolAgeDate(child.dateOfBirth);
+  if (child.deferredReception) return csa;
+  const reception = receptionStartDate(child.dateOfBirth);
+  return reception < csa ? reception : csa;
+}
+
+/**
  * ChildAgeGroupResult — the full output of getChildAgeGroup.
  */
 export interface ChildAgeGroupResult {
@@ -157,7 +187,7 @@ export function getChildAgeGroup(
   const term9m  = termAfterAge(child.dateOfBirth, 9);
   const term2yr = termAfterAge(child.dateOfBirth, 24);
   const term3yr = termAfterAge(child.dateOfBirth, 36);
-  const schoolAge = compulsorySchoolAgeDate(child.dateOfBirth);
+  const schoolAge = fundedHoursEndDate(child);
 
   // Grace period zone: within approximately one term (84 days) of any boundary
   const GRACE_ZONE_MS = 84 * 24 * 60 * 60 * 1000;
@@ -306,6 +336,47 @@ export function parentWorkingEligibilityFlag(
 // Scheme A: Free Funded Childcare Hours
 // ---------------------------------------------------------------------------
 
+/** Start dates of the three terms that fall in a tax year: 1 Apr Y, 1 Sep Y, 1 Jan Y+1. */
+export function taxYearTermStarts(config: TaxYearConfig): Date[] {
+  const y = parseInt(config.taxYear.slice(0, 4), 10);
+  return [
+    new Date(Date.UTC(y, 3, 1)),
+    new Date(Date.UTC(y, 8, 1)),
+    new Date(Date.UTC(y + 1, 0, 1)),
+  ];
+}
+
+/**
+ * Funded hours per week for an age group.
+ *   receivedHours    — hours the household gets given its working-parent status
+ *   universalHours   — universal 15 hours (3–4 year olds only)
+ *   incrementalHours — extra hours working-parent status adds (potential)
+ */
+function termHours(
+  ageGroup: FreeHoursAgeGroup,
+  householdWorkingEligible: boolean,
+  config: TaxYearConfig,
+  rates: { under2: number; age2: number; age3to4: number }
+): { receivedHours: number; universalHours: number; incrementalHours: number; hourlyRate: number } {
+  const working = config.freeHours.workingParentHoursPerWeek;
+  const universal = config.freeHours.universalHoursPerWeek;
+  switch (ageGroup) {
+    case "9m_to_2yr":
+      return { receivedHours: householdWorkingEligible ? working : 0, universalHours: 0, incrementalHours: working, hourlyRate: rates.under2 };
+    case "age_2yr":
+      return { receivedHours: householdWorkingEligible ? working : 0, universalHours: 0, incrementalHours: working, hourlyRate: rates.age2 };
+    case "age_3_to_4yr":
+      return {
+        receivedHours: householdWorkingEligible ? working : universal,
+        universalHours: universal,
+        incrementalHours: working - universal,
+        hourlyRate: rates.age3to4,
+      };
+    default:
+      return { receivedHours: 0, universalHours: 0, incrementalHours: 0, hourlyRate: 0 };
+  }
+}
+
 /**
  * computeFreeHoursForChild
  *
@@ -351,11 +422,9 @@ export function computeFreeHoursForChild(
   let universalHoursPerWeek = 0;
   let workingEligibilityFlag: EligibilityFlag;
   let universalEligibilityFlag: EligibilityFlag;
-  let hourlyRate = 0;
 
   switch (ageGroup) {
     case "under_9_months":
-      hourlyRate = 0;
       workingEligibilityFlag = mkFlag(
         "not_eligible",
         `Not yet eligible. Working parent entitlement begins ${eligibilityStartDate}.`,
@@ -369,7 +438,6 @@ export function computeFreeHoursForChild(
       break;
 
     case "9m_to_2yr":
-      hourlyRate = localRates.under2;
       universalEligibilityFlag = mkFlag(
         "not_eligible",
         "No universal entitlement for children aged 9 months to 2 years. " +
@@ -396,7 +464,6 @@ export function computeFreeHoursForChild(
       break;
 
     case "age_2yr":
-      hourlyRate = localRates.age2;
       universalEligibilityFlag = mkFlag(
         "not_eligible",
         "The 15-hour universal entitlement for 2-year-olds applies only to disadvantaged " +
@@ -420,7 +487,6 @@ export function computeFreeHoursForChild(
       break;
 
     case "age_3_to_4yr":
-      hourlyRate = localRates.age3to4;
       // Universal 15 hrs: always available regardless of income — cannot be lost
       universalHoursPerWeek = universalHrs;
       universalEligibilityFlag = mkFlag(
@@ -456,51 +522,40 @@ export function computeFreeHoursForChild(
       break;
 
     case "school_age_or_over":
-      hourlyRate = 0;
       workingEligibilityFlag = mkFlag(
         "not_eligible",
-        "Child has reached compulsory school age. Free funded hours entitlement has ended.",
+        "Child has started reception or reached compulsory school age. Free funded hours entitlement has ended.",
         0
       );
       universalEligibilityFlag = mkFlag(
         "not_eligible",
-        "Child has reached compulsory school age.",
+        "Child has started reception or reached compulsory school age.",
         0
       );
       break;
   }
 
-  // ---- Monetary values -------------------------------------------------------
-
-  const workingParentAnnualValue = workingParentHoursPerWeek * termWeeks * hourlyRate;
-  const universalAnnualValue = universalHoursPerWeek * termWeeks * hourlyRate;
-
-  // incrementalWorkingParentValue represents the value GAINED by having working
-  // parent eligibility — equivalently, the value LOST when eligibility is removed.
-  //
-  // This is computed as the POTENTIAL increment, not the CURRENT received hours.
-  // It is the same whether the family is currently eligible or not, so that:
-  //   - The marginal rate chart correctly spikes at the £100k cliff
-  //   - The optimiser correctly values the benefit of restoring eligibility
-  //
-  // rules.md §2.2.4 and §9.5.
-  let incrementalWorkingParentHours: number;
-
-  if (ageGroup === "age_3_to_4yr") {
-    // Always 15 additional hours above the universal baseline.
-    // The child gets 15 universal hours regardless of working parent eligibility.
-    // The ADDITIONAL value from working parent status is the extra 15 hours.
-    incrementalWorkingParentHours = workingHrs - universalHrs; // Always 15
-  } else {
-    // For 9m_to_2yr and age_2yr: no universal baseline, so all working hours are incremental.
-    // Always 30 hours — this is the potential value regardless of current eligibility.
-    incrementalWorkingParentHours = workingHrs;
+  // ---- Monetary values: summed term by term over the tax year ----------------
+  // Each of the three terms in the tax year (summer, autumn, spring) is valued
+  // at the child's age group on the term start date, so a child who moves up
+  // an age band or starts reception part-way through the year is valued
+  // correctly. rules.md §2.2.4.
+  const weeksPerTerm = termWeeks / 3;
+  let workingParentAnnualValue = 0;
+  let universalAnnualValue = 0;
+  let incrementalWorkingParentValue = 0;
+  for (const termStart of taxYearTermStarts(config)) {
+    const group = getChildAgeGroup(child, termStart).ageGroup;
+    const t = termHours(group, householdWorkingEligible, config, localRates);
+    workingParentAnnualValue += t.receivedHours * weeksPerTerm * t.hourlyRate;
+    universalAnnualValue += t.universalHours * weeksPerTerm * t.hourlyRate;
+    incrementalWorkingParentValue += t.incrementalHours * weeksPerTerm * t.hourlyRate;
   }
 
-  const incrementalWorkingParentValue =
-    ageGroup === "under_9_months" || ageGroup === "school_age_or_over"
-      ? 0  // No incremental value for age groups outside the working parent scheme
-      : incrementalWorkingParentHours * termWeeks * hourlyRate;
+  // incrementalWorkingParentHours: the POTENTIAL extra hours from working
+  // parent status at the reference date, whether or not the household
+  // currently qualifies (so the cliff can be valued). rules.md §2.2.4 and §9.5.
+  const incrementalWorkingParentHours = termHours(ageGroup, true, config, localRates).incrementalHours;
 
   return {
     childIndex,
