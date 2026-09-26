@@ -21,6 +21,7 @@
 import jsPDF from "jspdf";
 import type { CalculationResult } from "./engine-src/index";
 import { getTaxYearConfig } from "./engine-src/index";
+import { pdfCoverSubtitle, pdfPageHeader } from "./pdfText";
 
 // ---------------------------------------------------------------------------
 // Colours
@@ -93,8 +94,10 @@ class Doc {
   y: number;
   pageNum: number;
   _pageTitle: string;
+  headerText: string;
 
-  constructor() {
+  constructor(headerText: string) {
+    this.headerText = headerText;
     this.pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     this.y = 0;
     this.pageNum = 0;
@@ -112,7 +115,7 @@ class Doc {
     this.pdf.setFont("helvetica", "bold");
     this.pdf.setFontSize(8);
     this.pdf.setTextColor(...WHITE);
-    this.pdf.text("UK Childcare Tax Tool  2025/26", ML, 6.5);
+    this.pdf.text(this.headerText, ML, 6.5);
     if (title) this.pdf.text(title, PAGE_W - ML, 6.5, { align: "right" });
 
     // Footer
@@ -562,7 +565,7 @@ function drawCover(d: Doc, r: CalculationResult) {
   d.pdf.setFont("helvetica", "normal");
   d.pdf.setFontSize(10);
   d.pdf.setTextColor(148, 163, 184);
-  d.pdf.text("Personal Assessment  |  Tax Year 2025/26  |  England", ML, 38);
+  d.pdf.text(pdfCoverSubtitle(r), ML, 38);
   d.pdf.setFontSize(8);
   const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
   d.pdf.text(`Generated: ${today}`, PAGE_W - ML, 38, { align: "right" });
@@ -1146,7 +1149,7 @@ function drawRateTable(d: Doc, r: CalculationResult) {
 // Main export
 // ===========================================================================
 export function generateReport(result: CalculationResult): void {
-  const d = new Doc();
+  const d = new Doc(pdfPageHeader(result));
   drawCover(d, result);
   drawANI(d, result);
   drawSchemes(d, result);

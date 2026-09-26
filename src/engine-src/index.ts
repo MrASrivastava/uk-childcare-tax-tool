@@ -52,9 +52,14 @@ export {
   TAX_YEAR_2025_26,
   TAX_YEAR_2026_27,
   minimumIncomeQuarterly,
+  taxYearForDate,
+  isConfiguredTaxYear,
+  CONFIGURED_TAX_YEARS,
+  LATEST_CONFIGURED_TAX_YEAR,
+  TAX_YEAR_CONFIGS,
 } from "./types/constants";
 
-export type { TaxYear, TaxYearConfig, MinimumIncomeAgeBand } from "./types/constants";
+export type { TaxYear, TaxYearConfig, MinimumIncomeAgeBand, ConfigSource } from "./types/constants";
 
 // Utility: empty parent template for UI forms
 export { createEmptyParentIncome } from "./types/income";

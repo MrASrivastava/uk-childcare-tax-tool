@@ -250,7 +250,7 @@ function buildPensionRecommendation(
     );
     localWarnings.push(
       "From April 2029, salary sacrifice pension contributions above £2,000 a year will be subject to both " +
-        "employee and employer NICs. The NIC saving shown applies to 2025/26–2028/29 only. rules.md §4.1."
+        "employee and employer NICs. The NIC saving shown only applies before April 2029. rules.md §4.1."
     );
   }
 
@@ -347,7 +347,7 @@ function buildEVRecommendation(ctx: LeverContext, aniReduction: number): Optimis
       "Employer must offer an EV salary sacrifice scheme — not all employers do.",
       "Only worthwhile if you would otherwise pay for a car: the lease cost is real spending.",
       "Sacrifice reduces contractual gross salary — may affect mortgage assessments and statutory pay.",
-      `EV BiK rate rises from ${(config.evBiKRate * 100).toFixed(0)}% to 9% by 2029/30 — model future year costs.`,
+      `EV BiK rate rises from ${(config.evBiKRate * 100).toFixed(0)}% to 9% in the tax year starting April 2029 — model future year costs.`,
     ],
     immediatelyActionable: true,
     priority: priorityFor(sim.netAnnualGain),

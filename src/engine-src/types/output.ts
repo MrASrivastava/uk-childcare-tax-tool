@@ -405,6 +405,8 @@ export interface MarginalRateDataPoint {
 
 export interface CalculationResult {
   taxYear: TaxYear;
+  /** Jurisdiction the household was assessed under */
+  jurisdiction: import("./income").Jurisdiction;
   calculatedAt: string;                  // ISO timestamp
 
   parentA: {

@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![Tax Year](https://img.shields.io/badge/Tax%20Year-2025%2F26-orange)](#tax-year-coverage)
+[![Tax Year](https://img.shields.io/badge/Tax%20Years-2025%2F26%20%7C%202026%2F27-orange)](#tax-year-coverage)
 
 **▶ Try it now: https://mrasrivastava.github.io/uk-childcare-tax-tool/** — no install needed, runs entirely in your browser.
 

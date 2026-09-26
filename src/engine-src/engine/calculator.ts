@@ -18,7 +18,7 @@ import type {
   PensionCapacity,
   AtRiskThreshold,
 } from "../types/output";
-import { getTaxYearConfig, DEFAULT_LOCAL_HOURLY_RATES } from "../types/constants";
+import { getTaxYearConfig } from "../types/constants";
 import {
   calculateANI,
   calculatePersonalAllowance,
@@ -38,6 +38,10 @@ import {
   tfcTopUpValue,
 } from "./eligibility";
 import { computeOptimisationRecommendations } from "./optimiser";
+
+function clampDate(d: Date, min: Date, max: Date): Date {
+  return d < min ? min : d > max ? max : d;
+}
 
 /**
  * Whether a parent has income that requires a Self Assessment return anyway
@@ -248,15 +252,20 @@ export function computeCrossoverANI(
  */
 export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   const config = getTaxYearConfig(inputs.taxYear);
-  const localRates = inputs.providerHourlyRates ?? inputs.localHourlyRates ?? DEFAULT_LOCAL_HOURLY_RATES;
+  const localRates = inputs.providerHourlyRates ?? inputs.localHourlyRates ?? config.defaultProviderHourlyRates;
   // Date at which current status (age groups, eligible child counts) is shown:
-  // asOfDate or today, clamped into the selected tax year so that choosing a
-  // past or future year uses the children's ages in that year. Annual values
-  // are built up term by term / quarter by quarter across the tax year.
-  const today = inputs.asOfDate ? new Date(inputs.asOfDate + "T00:00:00Z") : new Date();
-  const taxYearStart = new Date(Date.UTC(parseInt(inputs.taxYear.slice(0, 4), 10), 3, 6));
-  const taxYearEnd = new Date(Date.UTC(parseInt(inputs.taxYear.slice(0, 4), 10) + 1, 3, 5));
-  const referenceDate = today < taxYearStart ? taxYearStart : today > taxYearEnd ? taxYearEnd : today;
+  // asOfDate if given; otherwise today if it falls in the selected tax year,
+  // or the middle of the year (5 October) if it doesn't. Annual values are
+  // built up term by term / quarter by quarter across the tax year.
+  const startYear = parseInt(inputs.taxYear.slice(0, 4), 10);
+  const taxYearStart = new Date(Date.UTC(startYear, 3, 6));
+  const taxYearEnd = new Date(Date.UTC(startYear + 1, 3, 5));
+  const today = new Date();
+  const referenceDate = inputs.asOfDate
+    ? clampDate(new Date(inputs.asOfDate + "T00:00:00Z"), taxYearStart, taxYearEnd)
+    : today >= taxYearStart && today <= taxYearEnd
+    ? today
+    : new Date(Date.UTC(startYear, 9, 5));
 
   const warnings: string[] = [];
 
@@ -624,6 +633,7 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
 
   return {
     taxYear: inputs.taxYear,
+    jurisdiction: inputs.jurisdiction,
     calculatedAt: new Date().toISOString(),
 
     parentA: {

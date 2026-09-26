@@ -38,7 +38,7 @@ describe("N3 — OpRA-aware salary sacrifice", () => {
 });
 
 describe("N4 — multi-year", () => {
-  it.fails("taxYearForDate treats 6 April as the start of the tax year", () => {
+  it("taxYearForDate treats 6 April as the start of the tax year", () => {
     const fn = read(engine, "taxYearForDate") as (d: Date) => string;
     expect(fn(new Date(Date.UTC(2026, 3, 6)))).toBe("2026/27");
   });

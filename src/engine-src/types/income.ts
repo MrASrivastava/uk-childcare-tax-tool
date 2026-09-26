@@ -485,7 +485,7 @@ export interface HouseholdInputs {
    * The family's nursery / provider hourly rate for each age band. A funded
    * hour saves the family what the provider would otherwise charge, so this
    * is what free hours are valued at. If not provided, the tool falls back to
-   * DEFAULT_LOCAL_HOURLY_RATES (national average funding rates), which usually
+   * the tax year's defaultProviderHourlyRates (national average funding rates), which usually
    * understates the value.
    */
   providerHourlyRates?: LocalHourlyRates;
@@ -502,8 +502,9 @@ export interface HouseholdInputs {
   estimatedAnnualChildcareSpend: number;
 
   /**
-   * Optional ISO date (YYYY-MM-DD) to evaluate child ages and eligibility at.
-   * Defaults to today. Used by tests for deterministic results.
+   * Optional assessment date (YYYY-MM-DD) at which child ages and current
+   * eligibility are shown, clamped into the selected tax year. Defaults to
+   * today if it falls in that year, otherwise the middle of the year.
    */
   asOfDate?: string;
 }

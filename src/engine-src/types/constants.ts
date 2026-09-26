@@ -177,6 +177,27 @@ export interface TaxYearConfig {
 
   /** Annual CGT exempt amount */
   cgtAnnualExemptAmount: number;
+
+  /**
+   * Fallback hourly value of a funded childcare hour, used when the user does
+   * not enter their provider's rate: national average early years funding
+   * rates. Usually understates the value (providers often charge more).
+   */
+  defaultProviderHourlyRates: { under2: number; age2: number; age3to4: number };
+
+  /**
+   * Where each figure comes from. verifiedOn is the ISO date someone last
+   * checked the figure against the source, or null if not yet checked.
+   * A guard test fails when a verifiedOn date is more than 13 months old.
+   */
+  sources: ConfigSource[];
+}
+
+export interface ConfigSource {
+  /** Config field(s) the source covers, e.g. "childBenefit" or "pension.annualAllowance" */
+  field: string;
+  url: string;
+  verifiedOn: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +223,32 @@ function deriveMinimumIncome(nmwHourly: number, hoursPerWeek: number): number {
  */
 export function minimumIncomeQuarterly(config: TaxYearConfig, band: MinimumIncomeAgeBand): number {
   return Math.round(config.minimumWageByAgeBand[band] * config.minimumIncomeHoursPerWeek * 13 * 100) / 100;
+}
+
+/**
+ * Sources for each group of figures. verifiedOn is null until someone checks
+ * the figure against the source for that year and records the date.
+ */
+function sourcesFor(): ConfigSource[] {
+  const unverified = (field: string, url: string): ConfigSource => ({ field, url, verifiedOn: null });
+  return [
+    unverified("personalAllowance, incomeTaxBands", "https://www.gov.uk/income-tax-rates"),
+    unverified("scottishIncomeTaxBands", "https://www.gov.uk/scottish-income-tax"),
+    unverified("employeeNICBands, employerNICRate", "https://www.gov.uk/national-insurance-rates-letters"),
+    unverified("nationalMinimumWageHourly, minimumWageByAgeBand", "https://www.gov.uk/national-minimum-wage-rates"),
+    unverified("childBenefit", "https://www.gov.uk/child-benefit-rates"),
+    unverified("hicbc", "https://www.gov.uk/child-benefit-tax-charge"),
+    unverified("freeHours", "https://www.gov.uk/get-childcare"),
+    unverified("tfc", "https://www.gov.uk/tax-free-childcare"),
+    unverified("pension", "https://www.gov.uk/tax-on-your-private-pension/annual-allowance"),
+    unverified("evBiKRate", "https://www.gov.uk/calculate-tax-on-company-cars"),
+    unverified("isaAllowance", "https://www.gov.uk/individual-savings-accounts"),
+    unverified("personalSavingsAllowance, startingRateForSavingsBand", "https://www.gov.uk/apply-tax-free-interest-on-savings"),
+    unverified("dividendAllowance, dividendRates", "https://www.gov.uk/tax-on-dividends"),
+    unverified("rentalFinanceCostReliefRate", "https://www.gov.uk/guidance/changes-to-tax-relief-for-residential-landlords-how-its-worked-out-including-case-studies"),
+    unverified("cgtAnnualExemptAmount", "https://www.gov.uk/capital-gains-tax/allowances"),
+    unverified("defaultProviderHourlyRates", "https://www.gov.uk/government/collections/early-years-funding"),
+  ];
 }
 
 export const TAX_YEAR_2025_26: TaxYearConfig = {
@@ -292,29 +339,38 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
   startingRateForSavingsBand: 5_000,
   rentalFinanceCostReliefRate: 0.20,
   cgtAnnualExemptAmount: 3_000,
+
+  // National average funding rates are only configured for 2026/27; 2025/26
+  // uses the same fallback until its averages are added and verified.
+  defaultProviderHourlyRates: { under2: 12.04, age2: 8.90, age3to4: 6.42 },
+
+  sources: sourcesFor(),
 };
 
 // ---------------------------------------------------------------------------
-// 2026/27 Configuration (confirmed rates; childcare thresholds assumed unchanged)
+// 2026/27 Configuration
 // ---------------------------------------------------------------------------
+//
+// A complete literal, deliberately NOT spread from 2025/26: every figure must
+// be set (and checked) for the year, so a new year can't silently inherit
+// last year's numbers. A guard test enforces this.
 
 export const TAX_YEAR_2026_27: TaxYearConfig = {
-  ...TAX_YEAR_2025_26,
   taxYear: "2026/27",
 
-  // Child Benefit uprated by 3.8% CPI (September 2025 CPI)
-  childBenefit: {
-    firstChildWeekly: 27.05,
-    additionalChildWeekly: 17.90,
-  },
+  personalAllowance: 12_570,
+  personalAllowanceTaperStart: 100_000,
+  personalAllowanceTaperEnd: 125_140,
 
-  // EV BiK rises to 4% in 2026/27
-  evBiKRate: 0.04,
+  incomeTaxBands: [
+    { from: 0,      to: 37_700,  rate: 0.20 },
+    { from: 37_700, to: 125_140, rate: 0.40 },
+    { from: 125_140, to: Infinity, rate: 0.45 },
+  ],
 
-  // Scottish starter and basic thresholds rose 7.4% (to £16,537 and £29,526
-  // gross); higher, advanced and top thresholds are frozen. Bands are
-  // expressed as taxable income after the £12,570 personal allowance.
   scottishIncomeTaxBands: [
+    // Starter and basic thresholds rose 7.4% (to £16,537 and £29,526 gross);
+    // higher, advanced and top are frozen. Expressed as taxable income after the PA.
     { name: "starter",      from: 0,       to: 3_967,   rate: 0.19 },
     { name: "basic",        from: 3_967,   to: 16_956,  rate: 0.20 },
     { name: "intermediate", from: 16_956,  to: 31_092,  rate: 0.21 },
@@ -323,28 +379,79 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
     { name: "top",          from: 125_140, to: Infinity, rate: 0.48 },
   ],
 
-  // Dividend ordinary and upper rates rise by 2 percentage points from April 2026
-  dividendRates: { basic: 0.1075, higher: 0.3575, additional: 0.3935 },
+  employeeNICBands: [
+    { from: 12_570,  to: 50_270,   rate: 0.08 },
+    { from: 50_270,  to: Infinity, rate: 0.02 },
+  ],
 
-  // Minimum wage from April 2026: £12.71 (21+), £10.85 (18–20), £8.00 (under 18 / apprentice)
+  employerNICRate: 0.15,
+  employerNICSecondaryThreshold: 5_000,
+
+  // Minimum wage from April 2026
   nationalMinimumWageHourly: 12.71,
   minimumWageByAgeBand: { "21_plus": 12.71, "18_to_20": 10.85, "under_18_or_apprentice": 8.00 },
+  minimumIncomeHoursPerWeek: MIN_INCOME_WEEKLY_HOURS,
+
+  childBenefit: {
+    firstChildWeekly: 27.05,
+    additionalChildWeekly: 17.90,
+  },
+
+  hicbc: {
+    startThreshold: 60_000,
+    fullClawbackThreshold: 80_000,
+    taperDenominator: 20_000,
+  },
 
   freeHours: {
-    ...TAX_YEAR_2025_26.freeHours,
+    universalHoursPerWeek: 15,
+    workingParentHoursPerWeek: 30,
+    minTermWeeksPerYear: 38,
     minimumIncomeThreshold: deriveMinimumIncome(12.71, MIN_INCOME_WEEKLY_HOURS),
+    maximumANIThreshold: 100_000,
   },
 
   tfc: {
-    ...TAX_YEAR_2025_26.tfc,
+    topUpRate: 0.20,
+    maxTopUpPerChildPerYear: 2_000,
+    maxTopUpDisabledPerYear: 4_000,
     minimumIncomeThreshold: deriveMinimumIncome(12.71, MIN_INCOME_WEEKLY_HOURS),
+    maximumANIThreshold: 100_000,
+    ageLimitBirthday: 11,
+    ageLimitBirthdayDisabled: 16,
   },
 
   pension: {
-    ...TAX_YEAR_2025_26.pension,
+    annualAllowance: 60_000,
+    mpaaAllowance: 10_000,
+    taperedAA_thresholdIncome: 200_000,
+    taperedAA_adjustedIncome: 260_000,
+    taperedAA_minimum: 10_000,
     // 2025/26, 2024/25, 2023/24
     priorYearAnnualAllowances: [60_000, 60_000, 60_000],
   },
+
+  evBiKRate: 0.04,
+
+  isaAllowance: 20_000,
+
+  personalSavingsAllowance: {
+    basicRate: 1_000,
+    higherRate: 500,
+    additionalRate: 0,
+  },
+
+  dividendAllowance: 500,
+  // Ordinary and upper dividend rates rise by 2 percentage points from April 2026
+  dividendRates: { basic: 0.1075, higher: 0.3575, additional: 0.3935 },
+  startingRateForSavingsBand: 5_000,
+  rentalFinanceCostReliefRate: 0.20,
+  cgtAnnualExemptAmount: 3_000,
+
+  // 2026/27 national average early years funding rates
+  defaultProviderHourlyRates: { under2: 12.04, age2: 8.90, age3to4: 6.42 },
+
+  sources: sourcesFor(),
 };
 
 // ---------------------------------------------------------------------------
@@ -361,19 +468,34 @@ export function getTaxYearConfig(year: TaxYear): TaxYearConfig {
   return config;
 }
 
+/** Configured tax years, oldest first. */
+export const CONFIGURED_TAX_YEARS = Object.keys(TAX_YEAR_CONFIGS).sort() as TaxYear[];
+
+/** The most recent tax year with a configuration. */
+export const LATEST_CONFIGURED_TAX_YEAR: TaxYear = CONFIGURED_TAX_YEARS[CONFIGURED_TAX_YEARS.length - 1];
+
+/**
+ * The UK tax year containing `date`, e.g. "2026/27". A tax year runs from
+ * 6 April to 5 April. The result may not have a configuration; check with
+ * isConfiguredTaxYear.
+ */
+export function taxYearForDate(date: Date): string {
+  const y = date.getUTCFullYear();
+  const beforeApril6 = date.getUTCMonth() < 3 || (date.getUTCMonth() === 3 && date.getUTCDate() < 6);
+  const start = beforeApril6 ? y - 1 : y;
+  return `${start}/${String((start + 1) % 100).padStart(2, "0")}`;
+}
+
+export function isConfiguredTaxYear(year: string): year is TaxYear {
+  return year in TAX_YEAR_CONFIGS;
+}
+
 // ---------------------------------------------------------------------------
 // Fallback hourly value of funded childcare
 // ---------------------------------------------------------------------------
-//
-// What a funded hour saves a family is the price their provider would
-// otherwise charge, which is often well above what the council pays the
-// provider. Users should enter their nursery's hourly rate
-// (HouseholdInputs.providerHourlyRates). When they don't, the engine falls
-// back to the 2026/27 national average funding rates below, which will
-// usually UNDERSTATE the value, especially in London.
 
-export const DEFAULT_LOCAL_HOURLY_RATES = {
-  under2: 12.04,
-  age2: 8.90,
-  age3to4: 6.42,
-} as const;
+/**
+ * @deprecated Use getTaxYearConfig(year).defaultProviderHourlyRates.
+ * The latest year's national average funding rates.
+ */
+export const DEFAULT_LOCAL_HOURLY_RATES = TAX_YEAR_CONFIGS[LATEST_CONFIGURED_TAX_YEAR].defaultProviderHourlyRates;
