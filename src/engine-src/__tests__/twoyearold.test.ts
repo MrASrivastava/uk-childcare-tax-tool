@@ -60,3 +60,26 @@ describe("2-year-olds with extra support (N6)", () => {
     expect(restored(withDLA)).toBeLessThan(restored(without));
   });
 });
+
+describe("benefits route income limit", () => {
+  const benefitsRoute = (salaryA: number, salaryB: number | null) =>
+    calculate(household({
+      parentA: parent(salaryA),
+      parentB: salaryB === null ? null : parent(salaryB, {}, "Parent B"),
+      children: [twoYearOld("benefits_route")],
+    }));
+
+  it("is tested on income after tax: £16,400 gross is about £15,327 after tax, so it qualifies", () => {
+    const r = benefitsRoute(16_400, null);
+    const afterTax = r.parentA.ani.step1NetIncome - r.parentA.incomeTax.totalIncomeTax - r.parentA.nic.totalEmployeeNIC;
+    expect(afterTax).toBeLessThanOrEqual(15_400);
+    expect(r.freeHours.children[0].universalHoursPerWeek).toBe(15);
+    expect(r.inputWarnings.some((w) => w.includes("benefits route"))).toBe(false);
+  });
+
+  it("is ignored above the limit, and the warning gives the after-tax figure", () => {
+    const r = benefitsRoute(14_000, 10_000);
+    expect(r.freeHours.children[0].universalHoursPerWeek).toBe(0);
+    expect(r.inputWarnings.find((w) => w.includes("benefits route"))).toMatch(/after tax/);
+  });
+});

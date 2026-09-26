@@ -379,18 +379,23 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   // ---- Step 6: Free hours per child ----------------------------------------
-  // The benefits route into the 2-year-old extra-support hours is income
-  // tested; ignore it (with a warning) when the household clearly earns more.
-  const earned = (p: typeof inputs.parentA) =>
-    calculateSalarySacrifice(p, config).postSacrificeSalary + p.bonus.expectedThisYear +
-    p.cashAllowances + p.selfEmploymentProfit;
-  const householdEarned = earned(inputs.parentA) + (inputs.parentB ? earned(inputs.parentB) : 0);
+  // The benefits route into the 2-year-old extra-support hours has a limit on
+  // household income AFTER tax (not counting benefits). Ignore the route, with
+  // a warning, when the household is above it.
+  const afterTax = (ani: typeof parentAANIBreakdown, tax: IncomeTaxResult, nic: NICResult) =>
+    ani.step1NetIncome - tax.totalIncomeTax - nic.totalEmployeeNIC;
+  const householdIncomeAfterTax =
+    afterTax(parentAANIBreakdown, parentAITResult, parentANICResult) +
+    (parentBANIBreakdown && parentBITResult && parentBNICResult
+      ? afterTax(parentBANIBreakdown, parentBITResult, parentBNICResult)
+      : 0);
+  const limit = config.freeHours.benefitsRouteIncomeLimit;
   const childrenForHours = inputs.children.map((child, i) => {
-    if (child.twoYearOldExtraSupport === "benefits_route" && householdEarned > config.freeHours.benefitsRouteEarnedIncomeLimit) {
+    if (child.twoYearOldExtraSupport === "benefits_route" && householdIncomeAfterTax > limit) {
       warnings.push(
-        `Child ${i + 1}: the benefits route to 15 hours for 2-year-olds has an earned income limit of ` +
-        `£${config.freeHours.benefitsRouteEarnedIncomeLimit.toLocaleString("en-GB")} a year, which this household is above. ` +
-        "It has been ignored."
+        `Child ${i + 1}: the benefits route to 15 hours for 2-year-olds needs household income of ` +
+        `£${limit.toLocaleString("en-GB")} a year or less after tax, and this household's is about ` +
+        `£${Math.round(householdIncomeAfterTax).toLocaleString("en-GB")}. It has been ignored.`
       );
       return { ...child, twoYearOldExtraSupport: null };
     }

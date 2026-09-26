@@ -225,9 +225,9 @@ The same term-start rule applies for the 2-year-old and 3-year-old milestones.
 - gets Disability Living Allowance;
 - has an education, health and care (EHC) plan;
 - is looked after by a local authority, or has left care through adoption, a special guardianship order or a child arrangements order; or
-- is in a family getting certain benefits (the benefits route: for Universal Credit, household earned income of £15,400 a year or less).
+- is in a family getting certain benefits (the benefits route: for Universal Credit, household income of £15,400 a year or less after tax, not counting benefits).
 
-The first three are not income-tested, so those children keep 15 hours above the £100,000 cliff, and only 15 hours (not 30) are lost there. If the child also qualifies for the working-parent entitlement, the two combine to 30 hours, not 45. The tool ignores the benefits route, with a warning, when household earnings are above its limit. The TFC disability test (DLA, PIP or blind) is not the same, so the tool asks separately rather than inferring it.
+The first three are not income-tested, so those children keep 15 hours above the £100,000 cliff, and only 15 hours (not 30) are lost there. If the child also qualifies for the working-parent entitlement, the two combine to 30 hours, not 45. The tool ignores the benefits route, with a warning, when household income after tax and National Insurance is above its limit. The TFC disability test (DLA, PIP or blind) is not the same, so the tool asks separately rather than inferring it.
 
 **Term-time definition:** 38 weeks per year minimum; maximum 52 weeks depending on provider. The statutory entitlement is **570 hours per year** (30 hours × 38 weeks = 1,140 hours capped at 570 for the base universal entitlement, 1,140 for the full working parent entitlement). Providers may stretch the hours across more weeks at fewer hours per week.
 
