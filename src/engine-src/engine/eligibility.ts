@@ -480,14 +480,85 @@ export function computeFreeHoursForChild(
  * computeChildAgeYears
  *
  * Returns a child's age in decimal years at the reference date.
- * Used for TFC eligibility age boundary checks.
+ * For display only; TFC eligibility uses tfcEligibleUntil.
  */
 export function computeChildAgeYears(dob: string, referenceDate: Date): number {
   const dobDate = new Date(dob + "T00:00:00Z");
   return (
-    (referenceDate.getFullYear() - dobDate.getFullYear()) * 12 +
-    (referenceDate.getMonth() - dobDate.getMonth())
+    (referenceDate.getUTCFullYear() - dobDate.getUTCFullYear()) * 12 +
+    (referenceDate.getUTCMonth() - dobDate.getUTCMonth())
   ) / 12;
+}
+
+/**
+ * tfcEligibleUntil
+ *
+ * A child stops being eligible for Tax-Free Childcare on the 1 September after
+ * their 11th birthday (16th if disabled). Returns that 1 September (UTC).
+ *
+ * rules.md §2.3.2.
+ */
+export function tfcEligibleUntil(child: ChildInfo, config: TaxYearConfig): Date {
+  const dob = new Date(child.dateOfBirth + "T00:00:00Z");
+  const limit = child.isDisabled ? config.tfc.ageLimitBirthdayDisabled : config.tfc.ageLimitBirthday;
+  const birthday = new Date(Date.UTC(dob.getUTCFullYear() + limit, dob.getUTCMonth(), dob.getUTCDate()));
+  const sept = new Date(Date.UTC(birthday.getUTCFullYear(), 8, 1));
+  return birthday < sept ? sept : new Date(Date.UTC(birthday.getUTCFullYear() + 1, 8, 1));
+}
+
+/** TFC eligibility of one child on a given date (from birth to tfcEligibleUntil). */
+export function isTFCEligibleChild(child: ChildInfo, date: Date, config: TaxYearConfig): boolean {
+  const dob = new Date(child.dateOfBirth + "T00:00:00Z");
+  return date >= dob && date < tfcEligibleUntil(child, config);
+}
+
+/**
+ * Start dates of the four 3-month TFC periods in a tax year
+ * (6 Apr, 6 Jul, 6 Oct, 6 Jan). Parents reconfirm every 3 months, and the
+ * cap applies per period, so the annual value is built up quarter by quarter.
+ */
+export function tfcQuarterStarts(config: TaxYearConfig): Date[] {
+  const y = parseInt(config.taxYear.slice(0, 4), 10);
+  return [
+    new Date(Date.UTC(y, 3, 6)),
+    new Date(Date.UTC(y, 6, 6)),
+    new Date(Date.UTC(y, 9, 6)),
+    new Date(Date.UTC(y + 1, 0, 6)),
+  ];
+}
+
+/**
+ * tfcTopUpValue
+ *
+ * Household TFC value ignoring parental eligibility. For each child:
+ *   top-up per quarter = min(20% × bill for the quarter, cap ÷ 4)
+ * summed over the quarters in which the child is eligible.
+ *
+ * `childBills` is what the parents pay each provider per year, per child,
+ * AFTER funded hours. The government pays £2 for every £8 the parent pays in,
+ * which is 20% of the provider's bill. The cap is per child account; it is
+ * not pooled across children.
+ *
+ * rules.md §2.3.4.
+ */
+export function tfcTopUpValue(
+  children: ChildInfo[],
+  childBills: number[],
+  config: TaxYearConfig
+): { maxTopUp: number; estimatedTopUp: number } {
+  const quarters = tfcQuarterStarts(config);
+  let maxTopUp = 0;
+  let estimatedTopUp = 0;
+  children.forEach((child, i) => {
+    const cap = child.isDisabled ? config.tfc.maxTopUpDisabledPerYear : config.tfc.maxTopUpPerChildPerYear;
+    const bill = Math.max(childBills[i] ?? 0, 0);
+    for (const q of quarters) {
+      if (!isTFCEligibleChild(child, q, config)) continue;
+      maxTopUp += cap / 4;
+      estimatedTopUp += Math.min((bill / 4) * config.tfc.topUpRate, cap / 4);
+    }
+  });
+  return { maxTopUp, estimatedTopUp };
 }
 
 /**
@@ -499,11 +570,11 @@ export function computeChildAgeYears(dob: string, referenceDate: Date): number {
  *
  * KEY RULES:
  * 1. If EITHER parent ANI > £100,000 → household loses TFC entirely (hard cliff).
- * 2. BOTH parents must earn >= minimum income threshold (unless exempt).
+ * 2. BOTH parents must meet the minimum income test (unless exempt).
  * 3. TFC is incompatible with Universal Credit and legacy Tax Credits.
- * 4. Child must be under 12 (under 17 if disabled).
- * 5. Government tops up £2 for every £8 parent spends (= 25% of parent spend).
- * 6. Maximum annual top-up: £2,000/child (£4,000 for disabled children).
+ * 4. Child is eligible until the 1 September after their 11th birthday (16th if disabled).
+ * 5. Government pays £2 for every £8 the parent pays in = 20% of the childcare bill.
+ * 6. Maximum top-up: £500 per child per 3-month period (£1,000 if disabled).
  */
 export function computeTFCEligibility(
   parentAANI: number,
@@ -513,7 +584,7 @@ export function computeTFCEligibility(
   parentBExemptFromMin: boolean,
   parentBOnLeave: boolean,
   children: ChildInfo[],
-  estimatedAnnualChildcareSpend: number,
+  childBills: number[],
   config: TaxYearConfig,
   referenceDate: Date
 ): TFCResult {
@@ -569,37 +640,9 @@ export function computeTFCEligibility(
     };
   }
 
-  // ---- Count eligible children by age ---------------------------------------
-  const eligibleChildren = children.filter((child) => {
-    const ageYears = computeChildAgeYears(child.dateOfBirth, referenceDate);
-    const maxAge = child.isDisabled
-      ? config.tfc.maxChildAgeDisabledYears
-      : config.tfc.maxChildAgeYears;
-    return ageYears < maxAge;
-  });
-
-  const eligibleChildCount = eligibleChildren.length;
-
-  // ---- Maximum annual top-up ------------------------------------------------
-  const maxTopUpAnnual = eligibleChildren.reduce(
-    (sum, child) =>
-      sum + (child.isDisabled
-        ? config.tfc.maxTopUpDisabledPerYear
-        : config.tfc.maxTopUpPerChildPerYear),
-    0
-  );
-
-  // ---- Estimated actual top-up based on spend ------------------------------
-  // For every £8 parent pays in, govt adds £2 → top-up rate = 25% of parent spend
-  // i.e. top-up = spend × 0.25, capped at maxTopUpAnnual
-  const estimatedTopUp =
-    maxTopUpAnnual === 0
-      ? 0
-      : Math.min(
-          estimatedAnnualChildcareSpend *
-            (config.tfc.topUpRate / (1 - config.tfc.topUpRate)),
-          maxTopUpAnnual
-        );
+  // ---- Eligible children and value -------------------------------------------
+  const eligibleChildCount = children.filter((c) => isTFCEligibleChild(c, referenceDate, config)).length;
+  const { maxTopUp, estimatedTopUp } = tfcTopUpValue(children, childBills, config);
 
   // ---- At-risk proximity check ---------------------------------------------
   const gapA = max - parentAANI;
@@ -619,7 +662,7 @@ export function computeTFCEligibility(
       smallestGap
     ),
     eligibleChildCount,
-    maxPossibleTopUpAnnual: maxTopUpAnnual,
+    maxPossibleTopUpAnnual: maxTopUp,
     estimatedActualTopUpAnnual: estimatedTopUp,
     atRisk,
   };

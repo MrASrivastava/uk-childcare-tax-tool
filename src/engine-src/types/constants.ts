@@ -65,10 +65,13 @@ export interface TFCConfig {
   minimumIncomeThreshold: number;
   /** Maximum ANI — hard cliff edge */
   maximumANIThreshold: number;
-  /** Maximum child age (years) for standard children */
-  maxChildAgeYears: number;
-  /** Maximum child age (years) for disabled children */
-  maxChildAgeDisabledYears: number;
+  /**
+   * Birthday after which eligibility ends. A child stays eligible until the
+   * 1 September after this birthday (11th for standard children).
+   */
+  ageLimitBirthday: number;
+  /** As ageLimitBirthday, for disabled children (16th birthday) */
+  ageLimitBirthdayDisabled: number;
 }
 
 export interface HICBCConfig {
@@ -232,8 +235,8 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
     maxTopUpDisabledPerYear: 4_000,
     minimumIncomeThreshold: deriveMinimumIncome(12.21, MIN_INCOME_WEEKLY_HOURS),
     maximumANIThreshold: 100_000,
-    maxChildAgeYears: 12,
-    maxChildAgeDisabledYears: 17,
+    ageLimitBirthday: 11,
+    ageLimitBirthdayDisabled: 16,
   },
 
   pension: {

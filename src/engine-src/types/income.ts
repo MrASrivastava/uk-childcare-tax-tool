@@ -375,6 +375,14 @@ export interface ChildInfo {
    * Disabled = entitled to Disability Living Allowance or Personal Independence Payment.
    */
   isDisabled: boolean;
+
+  /**
+   * Optional annual childcare cost for this child BEFORE funded hours
+   * (what the provider would charge with no government funding).
+   * If omitted, HouseholdInputs.estimatedAnnualChildcareSpend is split
+   * evenly across children of Tax-Free Childcare age.
+   */
+  annualChildcareCost?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -441,8 +449,10 @@ export interface HouseholdInputs {
   localHourlyRates?: LocalHourlyRates;
 
   /**
-   * Approximate annual childcare spend (used to calculate TFC value actually
-   * receivable, capped at max top-up). If 0, TFC value is shown as maximum possible.
+   * Total annual nursery / childcare fees BEFORE funded hours, across all
+   * children without their own annualChildcareCost. The engine subtracts the
+   * value of funded hours to get the bill the parents pay, and TFC adds 20%
+   * of that bill (capped per child).
    */
   estimatedAnnualChildcareSpend: number;
 

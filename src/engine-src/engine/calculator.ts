@@ -32,6 +32,9 @@ import {
   computeFreeHoursForChild,
   computeTFCEligibility,
   computeHICBC,
+  isTFCEligibleChild,
+  tfcQuarterStarts,
+  tfcTopUpValue,
 } from "./eligibility";
 import { computeOptimisationRecommendations } from "./optimiser";
 
@@ -394,6 +397,24 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
   );
 
   // ---- Step 7: TFC eligibility --------------------------------------------
+  // Each child's childcare cost before funded hours: the per-child figure if
+  // given, otherwise the household figure split across TFC-eligible children.
+  const quarterStarts = tfcQuarterStarts(config);
+  const tfcAgeChildren = inputs.children.filter(
+    (c) => c.annualChildcareCost === undefined && quarterStarts.some((q) => isTFCEligibleChild(c, q, config))
+  );
+  const explicitCosts = inputs.children.reduce((sum, c) => sum + (c.annualChildcareCost ?? 0), 0);
+  const sharedCost = tfcAgeChildren.length > 0
+    ? Math.max(inputs.estimatedAnnualChildcareSpend - explicitCosts, 0) / tfcAgeChildren.length
+    : 0;
+  const childCosts = inputs.children.map((c) =>
+    c.annualChildcareCost ?? (tfcAgeChildren.includes(c) ? sharedCost : 0)
+  );
+  // TFC pays 20% of what the parents pay, i.e. the bill after funded hours
+  const childBills = childCosts.map((cost, i) =>
+    Math.max(cost - freeHoursChildren[i].workingParentAnnualValue, 0)
+  );
+
   const tfc = computeTFCEligibility(
     parentAANI,
     parentBANI,
@@ -402,7 +423,7 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
     inputs.parentB?.exemptFromMinimumIncome ?? false,
     inputs.parentB?.onStatutoryLeave ?? false,
     inputs.children,
-    inputs.estimatedAnnualChildcareSpend,
+    childBills,
     config,
     referenceDate
   );
@@ -476,17 +497,16 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
       totalWorkingParentFreeHoursValue,
   };
 
-  // Compute potential TFC max top-up (what would be restored if eligible)
-  // This differs from tfc.maxPossibleTopUpAnnual which is 0 when currently ineligible
-  const potentialTFCMaxTopUp = inputs.children.reduce((sum, child) => {
-    const dob = new Date(child.dateOfBirth);
-    const maxAge = child.isDisabled ? config.tfc.maxChildAgeDisabledYears : config.tfc.maxChildAgeYears;
-    const ageYears = (referenceDate.getFullYear() - dob.getFullYear()) + (referenceDate.getMonth() - dob.getMonth()) / 12;
-    if (ageYears < maxAge) {
-      return sum + (child.isDisabled ? config.tfc.maxTopUpDisabledPerYear : config.tfc.maxTopUpPerChildPerYear);
-    }
-    return sum;
-  }, 0);
+  // Potential TFC top-up if the household were eligible (the value at stake at
+  // the cliff edge). Bills are net of the funded hours the household would get
+  // with working-parent entitlement.
+  const potentialTFCMaxTopUp = tfcTopUpValue(
+    inputs.children,
+    childCosts.map((cost, i) =>
+      Math.max(cost - freeHoursChildren[i].universalAnnualValue - freeHoursChildren[i].incrementalWorkingParentValue, 0)
+    ),
+    config
+  ).estimatedTopUp;
 
   // ---- Step 10: Optimisation recommendations ------------------------------
   const optimisationRecommendations = computeOptimisationRecommendations(
