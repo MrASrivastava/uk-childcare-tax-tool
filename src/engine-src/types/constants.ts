@@ -155,9 +155,11 @@ export interface TaxYearConfig {
   employeeNICBands: NICBand[];
 
   /**
-   * Employee Class 1 thresholds per earnings period, as published by HMRC
-   * (they are rounded, so not simply the annual figures divided). The rates
-   * are those in employeeNICBands.
+   * Employee Class 1 thresholds per earnings period. Weekly and monthly are
+   * HMRC's published (rounded) figures, not the annual figures divided.
+   * Periods that are a multiple of weeks use the weekly figures multiplied by
+   * the number of weeks (HMRC CWG2), so fortnightly = 2 × weekly and
+   * four-weekly = 4 × weekly. The rates are those in employeeNICBands.
    */
   class1Periods: Record<PayFrequency, { primaryThreshold: number; upperEarningsLimit: number }>;
 
@@ -320,7 +322,7 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
   class1Periods: {
     weekly:      { primaryThreshold: 242,   upperEarningsLimit: 967 },
     fortnightly: { primaryThreshold: 484,   upperEarningsLimit: 1_934 },
-    four_weekly: { primaryThreshold: 967,   upperEarningsLimit: 3_867 },
+    four_weekly: { primaryThreshold: 968,   upperEarningsLimit: 3_868 },
     monthly:     { primaryThreshold: 1_048, upperEarningsLimit: 4_189 },
   },
 
@@ -440,7 +442,7 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
   class1Periods: {
     weekly:      { primaryThreshold: 242,   upperEarningsLimit: 967 },
     fortnightly: { primaryThreshold: 484,   upperEarningsLimit: 1_934 },
-    four_weekly: { primaryThreshold: 967,   upperEarningsLimit: 3_867 },
+    four_weekly: { primaryThreshold: 968,   upperEarningsLimit: 3_868 },
     monthly:     { primaryThreshold: 1_048, upperEarningsLimit: 4_189 },
   },
 
