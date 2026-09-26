@@ -761,7 +761,7 @@ export function computeHICBC(
     : { charge: 0, retentionFraction: 0 };
 
   const netChildBenefitAnnual = childBenefitPaymentsElected
-    ? grossAnnual - hicbcCharge
+    ? Math.round((grossAnnual - hicbcCharge) * 100) / 100
     : 0;
 
   // HICBC is payable when payments are received and ANI > £60,000.

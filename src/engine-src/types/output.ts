@@ -338,14 +338,19 @@ export interface OptimisationRecommendation {
   actionUnit: string;          // "pension contribution (gross)" | "net donation" | etc.
 
   /**
-   * Annual benefit restored by taking this action (£)
-   * = value of schemes restored + income tax saving on marginal income
+   * Annual value of support restored by taking this action (£): the change in
+   * net Child Benefit + Tax-Free Childcare + free-hours value, from re-running
+   * the whole household calculation with the action applied. For protective
+   * recommendations, the value at risk if ANI crosses the threshold.
    */
   annualBenefitRestored: number;
 
   /**
-   * Net annual gain = annualBenefitRestored − actionRequired
-   * Negative means the action costs more than it recovers (should not be recommended).
+   * Net annual gain: the change in household disposable cash (take-home pay +
+   * net Child Benefit + TFC + free-hours value) from re-running the whole
+   * household calculation with the action applied. Includes every tax, NIC
+   * and benefit effect on both parents. Excludes pension pot growth, which is
+   * reported separately in pensionPotIncrease.
    */
   netAnnualGain: number;
 
@@ -354,6 +359,14 @@ export interface OptimisationRecommendation {
    * as immediate net gain but a significant additional benefit to communicate)
    */
   pensionPotIncrease?: number;
+
+  /**
+   * "restore": an action that recovers support or tax now.
+   * "protective": a buffer against crossing a threshold the parent is close to;
+   * annualBenefitRestored is the value protected and netAnnualGain the cash
+   * cost of the buffer.
+   */
+  kind?: "restore" | "protective";
 
   /**
    * Contraindications or warnings for this recommendation
@@ -438,6 +451,9 @@ export interface CalculationResult {
    * rules.md §9.5 — "crossover point".
    */
   crossoverANI: number | null;
+
+  /** Crossover point per parent (Parent A's is also exposed as crossoverANI). */
+  crossoverANIByParent: { parentA: number | null; parentB: number | null };
 
   /**
    * Thresholds the household is approaching (within AT_RISK_BUFFER) but has not yet breached.

@@ -356,6 +356,12 @@ export interface ParentIncome {
    * Exempts them from the minimum income requirement.
    */
   exemptFromMinimumIncome: boolean;
+
+  /**
+   * Contracted hours per week. Used to check that salary sacrifice does not
+   * take pay below the National Minimum Wage. Defaults to 37.5.
+   */
+  contractedHoursPerWeek?: number;
 }
 
 // ---------------------------------------------------------------------------

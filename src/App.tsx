@@ -1650,7 +1650,8 @@ function ChartPanel({ result }: { result: CalculationResult }) {
       ? result.parentA.ani.adjustedNetIncome
       : result.parentB?.ani.adjustedNetIncome ?? result.parentA.ani.adjustedNetIncome;
 
-  const crossover = result.crossoverANI;
+  const crossover =
+    activeParent === "A" ? result.crossoverANIByParent.parentA : result.crossoverANIByParent.parentB;
 
   const currentPoint = chartData.find((d) => d.k * 1000 >= currentANI) ?? chartData[chartData.length - 1];
 

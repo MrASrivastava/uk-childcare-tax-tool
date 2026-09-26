@@ -197,51 +197,38 @@ export function generateMarginalRateChart(
 /**
  * computeCrossoverANI
  *
- * Finds the ANI at which the parent's total net position (after income tax, NIC,
- * and all benefit losses) recovers to match the level just before the £100k cliff.
+ * Finds the ANI at which the parent's net position (after income tax, NIC,
+ * the PA taper and the childcare support lost at the cliff) recovers to the
+ * level it was at just below the cliff.
  *
- * This is the "breakeven" point — earning more than this ANI genuinely improves
- * the household's net position above where it was at £99k.
+ * Above the cliff each extra £1 of ANI keeps (1 − marginal rate), where the
+ * marginal rate already includes the PA taper. The crossover is the first
+ * point where the cumulative amount kept covers the one-off cliff loss.
  *
- * Returns null if no crossover is found within the chart range.
+ * Pass only the loss the household can actually realise (zero when the other
+ * parent is ineligible anyway). Returns null if there is no loss or no
+ * crossover within the chart range.
  *
  * rules.md §9.5 — "crossover point".
  */
 export function computeCrossoverANI(
   chartPoints: import("../types/output").MarginalRateDataPoint[],
   freeHoursIncrementalValue: number,
-  potentialTFCMaxTopUp: number
+  potentialTFCMaxTopUp: number,
+  cliff = 100_000
 ): number | null {
-  const CLIFF = 100_000;
-  const STEP = 1_000;
-
-  // Total benefits lost at the cliff
   const totalCliffLoss = freeHoursIncrementalValue + potentialTFCMaxTopUp;
-  if (totalCliffLoss === 0) return null;
+  if (totalCliffLoss <= 0) return null;
 
-  // Cumulate the "extra burden" vs the pre-cliff baseline.
-  // Start just above the cliff. As ANI increases, the PA taper adds burden
-  // but the income earned (minus 60%+ effective rate) also accumulates.
-  // Find where cumulative extra income earned > cumulative extra burden.
-  let cumulativeExtraBurden = totalCliffLoss;
-  let cumulativeExtraIncome = 0;
-
+  let recovered = 0;
+  let previousANI = cliff;
   for (const point of chartPoints) {
-    if (point.ani <= CLIFF) continue;
-
-    // Extra income earned at this step vs what the 40% band would have cost pre-cliff
-    const baselineRate = 0.42; // 40% IT + 2% NIC above UEL at pre-cliff
-    const actualRate = point.incomeTaxMarginalRate + point.nicMarginalRate + point.personalAllowanceTaperEffect;
-    const extraBurdenThisStep = Math.max(actualRate - baselineRate, 0) * STEP;
-    cumulativeExtraBurden += extraBurdenThisStep;
-
-    // Gross income step
-    cumulativeExtraIncome += STEP * (1 - actualRate);
-
-    // Once cumulative income recovered exceeds cumulative burden, we've crossed
-    if (cumulativeExtraIncome >= totalCliffLoss + (cumulativeExtraBurden - totalCliffLoss)) {
-      return point.ani;
-    }
+    if (point.ani <= cliff) continue;
+    const step = point.ani - previousANI;
+    previousANI = point.ani;
+    const rate = point.incomeTaxMarginalRate + point.nicMarginalRate + point.personalAllowanceTaperEffect;
+    recovered += step * (1 - rate);
+    if (recovered >= totalCliffLoss) return point.ani;
   }
 
   return null;
@@ -252,12 +239,13 @@ export function computeCrossoverANI(
 // ---------------------------------------------------------------------------
 
 /**
- * calculate
+ * calculateCore
  *
- * The single entry point for all calculations.
- * Implements rules.md §7 (Calculation Sequence for the Tool) exactly.
+ * The full household calculation except optimisation recommendations
+ * (returned empty). Implements rules.md §7 (Calculation Sequence for the Tool).
+ * The optimiser calls this on modified inputs to price each lever.
  */
-export function calculate(inputs: HouseholdInputs): CalculationResult {
+export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   const config = getTaxYearConfig(inputs.taxYear);
   const localRates = inputs.localHourlyRates ?? DEFAULT_LOCAL_HOURLY_RATES;
   const referenceDate = inputs.asOfDate
@@ -521,27 +509,38 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
     config
   ).estimatedTopUp;
 
-  // ---- Step 10: Optimisation recommendations ------------------------------
-  const optimisationRecommendations = computeOptimisationRecommendations(
-    { parent: inputs.parentA, ani: parentAANIBreakdown },
-    inputs.parentB && parentBANIBreakdown
-      ? { parent: inputs.parentB, ani: parentBANIBreakdown }
-      : null,
-    tfc,
-    freeHoursChildren,
-    hicbc,
-    config,
-    totalIncrementalFreeHoursValue,
-    potentialTFCMaxTopUp
-  );
+  // ---- Cliff-edge value each parent controls --------------------------------
+  // Crossing £100k only costs (or restores) childcare support if the OTHER
+  // parent passes both working-parent tests. Otherwise the household is
+  // ineligible either way and nothing turns on this parent's ANI.
+  const cliffLoss = totalIncrementalFreeHoursValue + potentialTFCMaxTopUp;
+  const cliffLossForA = parentBWorkingEligible === false ? 0 : cliffLoss;
+  const cliffLossForB = parentAWorkingEligible ? cliffLoss : 0;
+  const cliffFH = (loss: number) => (loss > 0 ? totalIncrementalFreeHoursValue : 0);
+  const cliffTFC = (loss: number) => (loss > 0 ? potentialTFCMaxTopUp : 0);
+
+  if (cliffLoss > 0) {
+    const over = (ani: number | null) => ani !== null && ani > config.freeHours.maximumANIThreshold;
+    const blocked = [
+      over(parentAANI) && cliffLossForA === 0 ? inputs.parentA.label : null,
+      inputs.parentB && over(parentBANI) && cliffLossForB === 0 ? inputs.parentB.label : null,
+    ].filter(Boolean);
+    if (blocked.length > 0) {
+      warnings.push(
+        `Reducing ${blocked.join(" or ")}'s ANI below £${config.freeHours.maximumANIThreshold.toLocaleString()} ` +
+        "would not restore Tax-Free Childcare or working-parent free hours on its own, because the other parent " +
+        "does not currently meet the working-parent income tests. Both parents must qualify."
+      );
+    }
+  }
 
   // ---- Marginal rate charts -----------------------------------------------
   const parentAMarginalChart = generateMarginalRateChart(
     inputs.parentA,
     config,
     hicbc.grossChildBenefitAnnual,
-    totalIncrementalFreeHoursValue,
-    potentialTFCMaxTopUp
+    cliffFH(cliffLossForA),
+    cliffTFC(cliffLossForA)
   );
 
   const parentBMarginalChart = inputs.parentB
@@ -549,17 +548,26 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
         inputs.parentB,
         config,
         hicbc.grossChildBenefitAnnual,
-        totalIncrementalFreeHoursValue,
-        potentialTFCMaxTopUp
+        cliffFH(cliffLossForB),
+        cliffTFC(cliffLossForB)
       )
     : null;
 
   // ---- Crossover point -------------------------------------------------------
-  const crossoverANI = computeCrossoverANI(
+  const crossoverANIParentA = computeCrossoverANI(
     parentAMarginalChart,
-    totalIncrementalFreeHoursValue,
-    potentialTFCMaxTopUp
+    cliffFH(cliffLossForA),
+    cliffTFC(cliffLossForA),
+    config.freeHours.maximumANIThreshold
   );
+  const crossoverANIParentB = parentBMarginalChart
+    ? computeCrossoverANI(
+        parentBMarginalChart,
+        cliffFH(cliffLossForB),
+        cliffTFC(cliffLossForB),
+        config.freeHours.maximumANIThreshold
+      )
+    : null;
 
   // ---- At-risk thresholds ---------------------------------------------------
   const AT_RISK_BUFFER_LOCAL = 5_000;
@@ -571,7 +579,7 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
   ]) {
     const distToChildcareCliff = config.freeHours.maximumANIThreshold - parentANI;
     if (distToChildcareCliff > 0 && distToChildcareCliff <= AT_RISK_BUFFER_LOCAL) {
-      const atRiskValue = potentialTFCMaxTopUp + totalIncrementalFreeHoursValue;
+      const atRiskValue = parentLbl === "Parent A" ? cliffLossForA : cliffLossForB;
       atRiskThresholds.push({
         thresholdLabel: "£100,000 childcare cliff edge (TFC + free hours)",
         parentLabel: parentLbl,
@@ -647,13 +655,29 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
       totalWorkingParentAnnualValue: totalWorkingParentFreeHoursValue,
     },
     householdSummary,
-    optimisationRecommendations,
+    optimisationRecommendations: [],
     marginalRateChart: {
       parentA: parentAMarginalChart,
       parentB: parentBMarginalChart,
     },
     inputWarnings: warnings,
-    crossoverANI,
+    crossoverANI: crossoverANIParentA,
+    crossoverANIByParent: { parentA: crossoverANIParentA, parentB: crossoverANIParentB },
     atRiskThresholds,
+  };
+}
+
+/**
+ * calculate
+ *
+ * The single entry point for all calculations.
+ * Runs the core household calculation, then the optimiser, which prices each
+ * recommendation by re-running the core calculation with the action applied.
+ */
+export function calculate(inputs: HouseholdInputs): CalculationResult {
+  const core = calculateCore(inputs);
+  return {
+    ...core,
+    optimisationRecommendations: computeOptimisationRecommendations(inputs, core, calculateCore),
   };
 }
