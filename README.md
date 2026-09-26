@@ -29,17 +29,20 @@ The UK childcare support system contains some of the sharpest financial cliff ed
 
 ## Quick start
 
-**Requirements:** Node.js 18+ and npm.
+**Requirements:** Node.js 22.12+ (22 LTS recommended) and npm. The repo's `.nvmrc` pins Node 22, and `npm install` refuses older versions.
 
 ```bash
 # 1. Clone
 git clone https://github.com/MrASrivastava/uk-childcare-tax-tool.git
 cd uk-childcare-tax-tool
 
-# 2. Install
+# 2. Use the pinned Node version (if you use nvm)
+nvm use
+
+# 3. Install
 npm install
 
-# 3. Run
+# 4. Run
 npm run dev
 ```
 
@@ -138,15 +141,19 @@ console.log(top?.lever, top?.netAnnualGain, top?.pensionPotIncrease);
 
 ## Testing
 
-The calculation engine has a Vitest suite in `src/engine-src/__tests__/`. Each test pins a household scenario to a known correct figure.
+The calculation engine has a Vitest suite in `src/engine-src/__tests__/`. Each test pins a household scenario to a known correct figure. `golden/` holds the boundary cases and the worked examples from the audits.
 
 ```bash
-npm test        # Vitest
-npm run build   # type-checks (tsc -b) and builds
-npm run lint    # ESLint
+npm test                  # Vitest
+npm test -- --coverage    # with coverage (80% line floor on src/engine-src)
+npx tsc -b                # type-check
+npm run lint              # ESLint
+npm run build             # production build
 ```
 
-All three must pass before a change is merged. The GitHub Pages deploy runs `npm test` and `npm run build`. Add a test for any new calculation logic and check it against the rules in [`rules.md`](rules.md).
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request on Node 22 and 24. The GitHub Pages deploy also runs lint and tests before building. Add a test for any new calculation logic and check it against [`rules.md`](rules.md).
+
+**Maintainers:** turn on branch protection for `main` and require the `CI` check, so a pull request that breaks a golden example can't merge. This is a repository setting, not something the code can do.
 
 ---
 
