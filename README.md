@@ -5,7 +5,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![Tests](https://img.shields.io/badge/Tests-489%20passing-brightgreen)](#testing)
 [![Tax Year](https://img.shields.io/badge/Tax%20Year-2025%2F26-orange)](#tax-year-coverage)
 
 ---
@@ -91,13 +90,6 @@ uk-childcare-tax-tool/
 │           ├── constants.ts  # Tax year configs (2025/26 and 2026/27)
 │           ├── income.ts     # Input types
 │           └── output.ts     # Output types
-├── tests/                    # Jest test suites
-│   ├── calculator.test.ts
-│   ├── eligibility.test.ts
-│   ├── marginalRate.test.ts
-│   ├── optimiser.test.ts
-│   ├── phase6.test.ts
-│   └── phase7.test.ts
 ├── index.html
 ├── package.json
 └── vite.config.ts
@@ -172,22 +164,14 @@ console.log('Net gain from top recommendation:',
 
 ## Testing
 
-The engine has a comprehensive test suite with 489 tests covering every calculation rule in the specification:
+There is no automated test suite yet, and `npm test` is not configured. The only automated checks are the type-check and linter:
 
 ```bash
-npm test                  # run all tests
-npm test -- --coverage    # with coverage report
+npm run build   # type-checks (tsc -b) and builds
+npm run lint    # ESLint
 ```
 
-| Suite | Tests | What it covers |
-|---|---|---|
-| `calculator.test.ts` | 49 | Net take-home, income tax, NIC bands |
-| `eligibility.test.ts` | 115 | Free hours, TFC, HICBC, grace periods, age groups |
-| `marginalRate.test.ts` | 47 | Marginal rate chart generation, cliff spike |
-| `optimiser.test.ts` | 45 | All 8 levers, NMW checks, AA headroom |
-| `phase6.test.ts` | 136 | Scottish rates, RSU timing, edge cases |
-| `phase7.test.ts` | 97 | Full rules.md numeric precision compliance |
-| **Total** | **489** | **99.4% statements / 98.1% branches** |
+Both currently report errors, mostly unused variables in the engine. Don't add new ones. Check calculation changes by hand against the rules in [`rules.md`](rules.md). Adding a test suite for the engine in `src/engine-src/` (Vitest fits the existing Vite setup) is a welcome contribution.
 
 ---
 
@@ -241,14 +225,14 @@ Contributions are very welcome, particularly:
 - **2026/27 and later tax year configurations** — add to `src/engine-src/types/constants.ts`
 - **Tapered Annual Allowance** — requires employer contribution inputs
 - **Bug reports** — especially cases where the tool's output differs from HMRC's own calculators
-- **Test coverage** — additional edge cases for eligibility boundary conditions
+- **Automated tests** — a test suite for the calculation engine, especially eligibility boundary conditions
 
 **How to contribute:**
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/scotland-free-hours`
-3. Make your changes and ensure all 489 existing tests still pass: `npm test`
-4. Add tests for any new calculation logic
+3. Make your changes without adding new `npm run build` or `npm run lint` errors
+4. Check any new calculation logic against `rules.md`
 5. Open a pull request with a clear description of the change
 
 ---
@@ -281,4 +265,4 @@ Contributions are very welcome, particularly:
 
 ---
 
-*Built with [React](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/), [Recharts](https://recharts.org/), and [jsPDF](https://github.com/parallax/jsPDF). Tested with [Jest](https://jestjs.io/).*
+*Built with [React](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/), [Recharts](https://recharts.org/), and [jsPDF](https://github.com/parallax/jsPDF).*
