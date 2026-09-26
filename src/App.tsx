@@ -944,6 +944,7 @@ function ANIWaterfall({ ani, label }: { ani: ANIBreakdown; label: string }) {
 
   const deductItems = [
     { l: "Salary sacrifice (total)", v: ani.totalSalarySacrifice },
+    { l: "Net pay pension contributions", v: ani.netPayPensionContributions },
     { l: "Gift Aid deduction (grossed up)", v: ani.step2GiftAidDeduction },
     { l: "Relief-at-source pension (grossed up)", v: ani.step3PensionDeduction },
   ].filter((x) => x.v !== 0);

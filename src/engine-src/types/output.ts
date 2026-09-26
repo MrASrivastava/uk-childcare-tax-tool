@@ -51,6 +51,8 @@ export interface ANIBreakdown {
   salarySacrifice_cycleToWork: number;
   salarySacrifice_other: number;
   postSacrificeSalary: number;           // grossSalary − totalSalarySacrifice
+  /** Net pay arrangement pension contributions deducted in Step 1 */
+  netPayPensionContributions: number;
 
   bonusIncome: number;
   rsuIncome: number;                     // Sum of vest values in this tax year (net of transferred employer NIC)
@@ -66,6 +68,8 @@ export interface ANIBreakdown {
   dividendsNonISA: number;
   pensionIncomeGross: number;
   otherTaxableIncome: number;
+  /** Relevant UK earnings: caps the relief-at-source contributions that attract relief */
+  relevantUKEarnings: number;
 
   /** Step 1 net income (sum of all above) */
   step1NetIncome: number;
@@ -129,7 +133,7 @@ export interface IncomeTaxResult {
 
 export interface NICResult {
   parentLabel: string;
-  grossPayForNIC: number;             // Post-sacrifice employment income for NIC
+  grossPayForNIC: number;             // Post-sacrifice cash earnings for Class 1 NIC (excludes BiKs)
   employeeNIC: number;
   /** For information only — employer's NIC saving from any salary sacrifice */
   employerNICSavingFromSacrifice: number;

@@ -191,10 +191,11 @@ export interface PersonalPensionContributions {
   reliefAtSourceNet: number;
 
   /**
-   * If the individual also contributes to a net-pay arrangement workplace pension
-   * (separate from any salary sacrifice), enter the gross contribution here.
-   * These reduce gross income before PAYE — already captured in Step 1 net income.
-   * Entering here allows the tool to verify Annual Allowance compliance.
+   * Gross employee contributions to a net pay arrangement workplace pension
+   * (e.g. the NHS scheme and many DB schemes), separate from salary sacrifice.
+   * The employer deducts these before PAYE, so the engine subtracts them from
+   * employment income in Step 1. They do not reduce NIC.
+   * grossSalary should still be the contractual salary before this deduction.
    */
   netPayArrangementGross: number;
 }

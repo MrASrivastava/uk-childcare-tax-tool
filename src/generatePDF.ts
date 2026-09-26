@@ -717,6 +717,7 @@ function drawANI(d: Doc, r: CalculationResult) {
       ...(ani.pensionIncomeGross > 0 ? [["Pension income",        ani.pensionIncomeGross] as [string,number]] : []),
     ];
     for (const [lbl, val] of incomeRows) d.kvRow(safe(lbl), `+ ${fmtGBP(val)}`, GREEN, 2);
+    if (ani.netPayPensionContributions > 0) d.kvRow("Net pay pension contributions", `- ${fmtGBP(ani.netPayPensionContributions)}`, RED, 2);
 
     d.hr();
     d.kvRow("Step 1: Net income", fmtGBP(ani.step1NetIncome), NAVY);

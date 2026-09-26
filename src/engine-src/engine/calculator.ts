@@ -286,7 +286,7 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   // ---- Steps 5b–5c: Income tax and NIC per parent --------------------------
-  const parentAITCalc = calculateIncomeTax(parentAANI, parentAPA, inputs.parentA, config);
+  const parentAITCalc = calculateIncomeTax(parentAANIBreakdown, parentAPA, inputs.parentA, config);
   const parentANICCalc = calculateEmployeeNIC(inputs.parentA, config);
 
   const parentAITResult: IncomeTaxResult = {
@@ -315,7 +315,7 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
 
   const parentBITResult: IncomeTaxResult | null = inputs.parentB && parentBANI !== null && parentBPA !== null
     ? (() => {
-        const calc = calculateIncomeTax(parentBANI, parentBPA, inputs.parentB, config);
+        const calc = calculateIncomeTax(parentBANIBreakdown!, parentBPA, inputs.parentB, config);
         return {
           parentLabel: inputs.parentB.label,
           taxableIncome: calc.taxableIncome,
@@ -439,8 +439,9 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
   // GIFT AID: the person physically donated `giftAidDonationsNet`. The charity reclaims
   //   the 20% tax relief. Only the net donated is a real bank outflow.
   //
-  // INCOME TAX: computed on ANI (which correctly incorporates all Step 2/3 deductions),
-  //   so tax is properly reduced by the grossed-up pension and Gift Aid amounts.
+  // INCOME TAX: computed on step1NetIncome less the ANI-derived personal allowance,
+  //   with the higher-rate thresholds extended by the grossed-up pension and Gift Aid.
+  //   The basic-rate relief goes to the pension pot / charity, not to the pay packet.
   //
   // rules.md Part 1 (ANI calculation steps) and §9.3 (Output Specification).
 

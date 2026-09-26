@@ -19,6 +19,9 @@ import type { ParentIncome, RSUVest } from "../types/income";
 import type { ANIBreakdown } from "../types/output";
 import type { TaxYearConfig } from "../types/constants";
 
+/** Gross personal contributions always relievable, even with no earnings. */
+const RELIEVABLE_CONTRIBUTION_FLOOR = 3_600;
+
 // ---------------------------------------------------------------------------
 // RSU helpers
 // ---------------------------------------------------------------------------
@@ -184,6 +187,10 @@ export function calculateANI(
   // ---- RSU income ------------------------------------------------------
   const rsuIncome = calculateRSUTotal(parent, config);
 
+  // Net pay arrangement contributions are taken from pay before PAYE, so they
+  // reduce employment income in Step 1 (rules.md §1.2 Step 1).
+  const netPayPension = parent.personalPensionContributions.netPayArrangementGross;
+
   // ---- STEP 1: Net income -----------------------------------------------
   // rules.md §1.2 Step 1:
   // Net income = post-sacrifice salary + all other taxable income
@@ -201,7 +208,8 @@ export function calculateANI(
     parent.savingsInterestNonISA +       // Non-ISA savings interest (full amount)
     parent.dividendsNonISA +             // Non-ISA dividends (full amount)
     parent.pensionIncomeGross +          // Pension / drawdown income
-    parent.otherTaxableIncome;           // Other taxable income
+    parent.otherTaxableIncome -          // Other taxable income
+    netPayPension;                       // Net pay pension: deducted by payroll before PAYE
 
   // ---- STEP 2: Gift Aid deduction ----------------------------------------
   // rules.md §1.2 Step 2: deduct grossed-up Gift Aid donations
@@ -211,10 +219,17 @@ export function calculateANI(
   // ---- STEP 3: Relief-at-source pension deduction -------------------------
   // rules.md §1.2 Step 3:
   // Only applies to relief-at-source arrangements.
-  // Net-pay and salary sacrifice pensions are already captured in Step 1 (post-sacrifice salary).
-  // Gross = net contribution ÷ 0.8
-  const step3PensionDeduction =
-    parent.personalPensionContributions.reliefAtSourceNet / 0.8;
+  // Net-pay and salary sacrifice pensions are already captured in Step 1.
+  // Gross = net contribution ÷ 0.8, limited to the contributions that attract
+  // relief: the higher of £3,600 and relevant UK earnings (rules.md §4.2).
+  const relevantUKEarnings =
+    sacrifice.postSacrificeSalary + sacrifice.evBiKIncome + bik.total +
+    parent.bonus.expectedThisYear + rsuIncome + parent.cashAllowances +
+    parent.selfEmploymentProfit - netPayPension;
+  const step3PensionDeduction = Math.min(
+    parent.personalPensionContributions.reliefAtSourceNet / 0.8,
+    Math.max(RELIEVABLE_CONTRIBUTION_FLOOR, relevantUKEarnings)
+  );
 
   // ---- STEP 4: Add-back (s.457/458) ---------------------------------------
   // rules.md §1.2 Step 4: add back trade union / police organisation payments
@@ -241,6 +256,7 @@ export function calculateANI(
     salarySacrifice_cycleToWork: sacrifice.cycleToWork,
     salarySacrifice_other: sacrifice.other,
     postSacrificeSalary: sacrifice.postSacrificeSalary,
+    netPayPensionContributions: netPayPension,
 
     bonusIncome: parent.bonus.expectedThisYear,
     rsuIncome,
@@ -256,6 +272,7 @@ export function calculateANI(
     dividendsNonISA: parent.dividendsNonISA,
     pensionIncomeGross: parent.pensionIncomeGross,
     otherTaxableIncome: parent.otherTaxableIncome,
+    relevantUKEarnings,
 
     step1NetIncome,
     step2GiftAidDeduction,
@@ -315,21 +332,20 @@ export function calculateEmployeeNIC(
 ): { employmentIncomeForNIC: number; employeeNIC: number } {
   const sacrifice = calculateSalarySacrifice(parent, config);
   const startYear = taxYearStartYear(config.taxYear);
-  const bik = calculateBiK(parent);
 
   // RSU gross values for NIC (not net of employer NIC transfer — see rules.md §6.4)
   const rsuGrossForNIC = parent.rsuVests
     .filter((v) => isVestInTaxYear(v.vestDate, startYear))
     .reduce((sum, v) => sum + v.grossValue, 0);
 
-  // Employment income for NIC purposes:
-  // Post-sacrifice salary + BiK + bonuses + cash allowances + RSU GROSS values
-  // (not reduced by transferred employer NIC for NIC purposes)
+  // Employment income for Class 1 NIC purposes:
+  // Post-sacrifice salary + bonuses + cash allowances + RSU GROSS values
+  // (not reduced by transferred employer NIC for NIC purposes).
+  // Benefits in kind are NOT included: they attract employer-only Class 1A NIC.
+  // Net pay pension contributions do NOT reduce the NIC base.
   // Non-employment income (rental, savings, dividends) is NOT subject to NIC.
   const employmentIncomeForNIC =
     sacrifice.postSacrificeSalary +
-    sacrifice.evBiKIncome +
-    bik.total +
     parent.bonus.expectedThisYear +
     rsuGrossForNIC +
     parent.cashAllowances;
@@ -352,44 +368,70 @@ export function calculateEmployeeNIC(
 /**
  * calculateIncomeTax
  *
- * Calculates income tax on the full ANI less the personal allowance.
- * Applies England/Wales/NI rates unless scotlandResident is true.
+ * Calculates income tax on Step 1 net income less the personal allowance.
+ * The personal allowance itself is derived from ANI (the taper).
  *
- * Note: The personal allowance interacts with the taper; taxable income
- * is ANI minus the effective personal allowance.
+ * Relief for relief-at-source pension contributions and Gift Aid is NOT given
+ * by deducting them from taxable income. The payer already receives basic-rate
+ * relief (the pension scheme / charity reclaims 20%). Any higher-rate relief
+ * is given by extending the band thresholds above the basic rate by the gross
+ * contribution. rules.md §4.2 and §4.3.
+ *
+ * Applies England/Wales/NI rates unless scotlandResident is true.
  */
 export function calculateIncomeTax(
-  ani: number,
+  aniBreakdown: ANIBreakdown,
   effectivePA: number,
   parent: ParentIncome,
   config: TaxYearConfig
 ): { taxableIncome: number; totalIncomeTax: number; bands: Array<{ bandName: string; taxableIncome: number; rate: number; taxCharged: number }> } {
-  const taxableIncome = Math.max(ani - effectivePA, 0);
+  const bandExtension = aniBreakdown.step2GiftAidDeduction + aniBreakdown.step3PensionDeduction;
+  const taxableIncome = Math.max(aniBreakdown.step1NetIncome - effectivePA, 0);
 
-  const bands = parent.scotlandResident
-    ? config.scottishIncomeTaxBands.map((b) => ({ bandName: b.name, from: b.from, to: b.to, rate: b.rate }))
-    : config.incomeTaxBands.map((b, i) => ({
-        bandName: i === 0 ? "basic" : i === 1 ? "higher" : "additional",
-        from: b.from,
-        to: b.to,
-        rate: b.rate,
-      }));
+  const bands = extendBands(
+    parent.scotlandResident
+      ? config.scottishIncomeTaxBands.map((b) => ({ bandName: b.name, from: b.from, to: b.to, rate: b.rate }))
+      : config.incomeTaxBands.map((b, i) => ({
+          bandName: i === 0 ? "basic" : i === 1 ? "higher" : "additional",
+          from: b.from,
+          to: b.to,
+          rate: b.rate,
+        })),
+    bandExtension,
+    parent.scotlandResident ? 1 : 0
+  );
 
   const taxedBands: Array<{ bandName: string; taxableIncome: number; rate: number; taxCharged: number }> = [];
-  let remaining = taxableIncome;
   let totalIncomeTax = 0;
 
   for (const band of bands) {
-    if (remaining <= 0) break;
-    const bandWidth = band.to === Infinity ? remaining : Math.min(band.to - band.from, remaining);
-    const inBand = Math.min(remaining, bandWidth);
+    const inBand = Math.max(Math.min(taxableIncome, band.to) - band.from, 0);
+    if (inBand <= 0) continue;
     const charged = inBand * band.rate;
     taxedBands.push({ bandName: band.bandName, taxableIncome: inBand, rate: band.rate, taxCharged: charged });
     totalIncomeTax += charged;
-    remaining -= inBand;
   }
 
   return { taxableIncome, totalIncomeTax, bands: taxedBands };
+}
+
+/**
+ * Raises every band boundary from the upper limit of band `firstExtended`
+ * onwards by `extension`. For UK bands that is the basic-rate limit and
+ * above; for Scottish bands the starter band is left alone and the basic-rate
+ * limit and above are raised.
+ */
+function extendBands<T extends { from: number; to: number }>(
+  bands: T[],
+  extension: number,
+  firstExtended: number
+): T[] {
+  if (extension <= 0) return bands;
+  return bands.map((b, i) => ({
+    ...b,
+    from: i > firstExtended ? b.from + extension : b.from,
+    to: i >= firstExtended && b.to !== Infinity ? b.to + extension : b.to,
+  }));
 }
 
 // ---------------------------------------------------------------------------
