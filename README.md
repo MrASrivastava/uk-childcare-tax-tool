@@ -29,7 +29,7 @@ The UK childcare support system contains some of the sharpest financial cliff ed
 
 ## Quick start
 
-**Requirements:** Node.js 22.12+ (22 LTS recommended) and npm. The repo's `.nvmrc` pins Node 22, and `npm install` refuses older versions.
+**Requirements:** Node.js 22.13+ or 24+ (22 LTS recommended) and npm. The repo's `.nvmrc` pins Node 22, and `npm install` refuses older versions.
 
 ```bash
 # 1. Clone
@@ -151,7 +151,7 @@ npm run lint              # ESLint
 npm run build             # production build
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of these on every pull request on Node 22 and 24. The GitHub Pages deploy also runs lint and tests before building. Add a test for any new calculation logic and check it against [`rules.md`](rules.md).
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request on Node 22.13 and 24. The GitHub Pages deploy also runs lint and tests before building. Add a test for any new calculation logic and check it against [`rules.md`](rules.md).
 
 **Maintainers:** turn on branch protection for `main` and require the `CI` check, so a pull request that breaks a golden example can't merge. This is a repository setting, not something the code can do.
 
