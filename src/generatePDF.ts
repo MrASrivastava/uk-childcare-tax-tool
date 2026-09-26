@@ -898,7 +898,8 @@ function drawPension(d: Doc, r: CalculationResult) {
     d.y += 10;
 
     d.kvRow("Annual Allowance", fmtGBP(cap.annualAllowance), cap.mpaaApplies ? RED : NAVY);
-    d.kvRow("Total contributions this year", fmtGBP(cap.totalContributionsThisYear));
+    d.kvRow("Pension input this year", fmtGBP(cap.totalContributionsThisYear));
+    if (cap.annualAllowanceCharge > 0) d.kvRow("Annual Allowance charge", fmtGBP(cap.annualAllowanceCharge), RED);
     d.kvRow("Remaining headroom", fmtGBP(cap.remainingHeadroomThisYear), cap.remainingHeadroomThisYear > 0 ? GREEN : RED);
     if (cap.carryForwardAvailable != null) d.kvRow("Carry-forward available (3yr)", fmtGBP(cap.carryForwardAvailable), PURPLE);
     if (cap.maxAdditionalContribution != null && cap.maxAdditionalContribution > 0) {

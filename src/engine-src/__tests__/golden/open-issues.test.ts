@@ -54,7 +54,7 @@ describe("N5 — Class 1 NIC per pay period", () => {
 });
 
 describe("N2 — Annual Allowance", () => {
-  it.fails("counts employer contributions against the allowance", () => {
+  it("counts employer contributions against the allowance", () => {
     const r = calculate(household({
       parentA: looseParent(80_000, {
         salarySacrifice: { pension: 10_000, ev: null, cycleToWork: 0, other: 0 },

@@ -145,7 +145,7 @@ The calculation engine has a Vitest suite in `src/engine-src/__tests__/`. Each t
 
 ```bash
 npm test                  # Vitest
-npm test -- --coverage    # with coverage (80% line floor on src/engine-src)
+npm test -- --coverage    # with coverage (90% line floor on src/engine-src)
 npx tsc -b                # type-check
 npm run lint              # ESLint
 npm run build             # production build
@@ -178,7 +178,6 @@ CI (`.github/workflows/ci.yml`) runs all of these on every pull request on Node 
 **Known limitations** — the following are not currently modelled:
 
 - Scotland, Wales, and Northern Ireland free childcare entitlements (different schemes and rules)
-- Tapered Annual Allowance (requires employer contribution inputs not yet in the UI)
 - IR35, director dividends, or complex ownership structures
 - Universal Credit childcare element
 - Salary sacrifice schemes beyond pension, EV, and cycle-to-work
@@ -206,7 +205,6 @@ Contributions are very welcome, particularly:
 
 - **Scotland / Wales / NI childcare entitlement rules** — the engine flags these jurisdictions but doesn't calculate them
 - **2026/27 and later tax year configurations** — add to `src/engine-src/types/constants.ts`
-- **Tapered Annual Allowance** — requires employer contribution inputs
 - **Bug reports** — especially cases where the tool's output differs from HMRC's own calculators
 - **More tests** — especially eligibility boundary conditions and cross-checks against HMRC's calculators
 

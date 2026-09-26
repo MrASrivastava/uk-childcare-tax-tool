@@ -21,11 +21,7 @@ import type { HouseholdInputs, ParentIncome } from "../types/income";
 import type { CalculationResult, OptimisationRecommendation } from "../types/output";
 import type { TaxYearConfig } from "../types/constants";
 import { getTaxYearConfig } from "../types/constants";
-import {
-  calculateSalarySacrifice,
-  calculatePensionCarryForward,
-  totalPensionContributionsThisYear,
-} from "./ani";
+import { calculateSalarySacrifice } from "./ani";
 
 type ParentKey = "parentA" | "parentB";
 type CoreFn = (inputs: HouseholdInputs) => CalculationResult;
@@ -122,42 +118,28 @@ function totalSacrifice(parent: ParentIncome, config: TaxYearConfig): number {
 // Pension headroom
 // ---------------------------------------------------------------------------
 
-function pensionHeadroomAvailable(
-  parent: ParentIncome,
-  config: TaxYearConfig
-): { headroom: number; warnings: string[] } {
-  const totalContributions = totalPensionContributionsThisYear(parent);
-  const aa = parent.mpaaTriggered
-    ? config.pension.mpaaAllowance
-    : config.pension.annualAllowance;
-  const remainingThisYear = Math.max(aa - totalContributions, 0);
-  const carryForward = calculatePensionCarryForward(parent, config);
-  const totalHeadroom =
-    carryForward !== null
-      ? remainingThisYear + carryForward
-      : remainingThisYear;
-
+/**
+ * Pension headroom from the base calculation's Annual Allowance test, which
+ * counts employer contributions and DB accrual, applies the taper and MPAA,
+ * and adds carry-forward.
+ */
+function pensionHeadroomAvailable(ctx: LeverContext): { headroom: number; warnings: string[] } {
+  const capacity = ctx.key === "parentA" ? ctx.base.parentA.pensionCapacity : ctx.base.parentB!.pensionCapacity;
+  const headroom = capacity.maxAdditionalContribution ?? capacity.remainingHeadroomThisYear;
   const warnings: string[] = [];
-  if (parent.mpaaTriggered) {
+  if (capacity.mpaaApplies) {
     warnings.push(
-      `MPAA applies — DC pension contributions capped at ${fmt(config.pension.mpaaAllowance)}/year. ` +
-        "Carry-forward cannot be used to exceed MPAA for money purchase contributions."
+      `MPAA applies — money purchase contributions above ${fmt(ctx.config.pension.mpaaAllowance)}/year are charged, ` +
+        "and carry-forward cannot be used for them."
     );
   }
-  if (carryForward === null) {
+  if (capacity.carryForwardAvailable === null && !capacity.mpaaApplies) {
     warnings.push(
-      "Prior-year contribution data not provided. " +
+      "Prior-year pension inputs not provided. " +
         "Carry-forward capacity cannot be calculated — recommendations assume current-year headroom only."
     );
   }
-  if (totalContributions > aa) {
-    warnings.push(
-      `Annual Allowance already exceeded this year ` +
-        `(${fmt(totalContributions)} contributed vs ${fmt(aa)} AA). ` +
-        "An Annual Allowance charge may be due."
-    );
-  }
-  return { headroom: totalHeadroom, warnings };
+  return { headroom, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -193,21 +175,9 @@ function buildPensionRecommendation(
   kind: "restore" | "protective" = "restore"
 ): OptimisationRecommendation {
   const { parent, config, key } = ctx;
-  const { headroom, warnings } = pensionHeadroomAvailable(parent, config);
+  const { headroom, warnings } = pensionHeadroomAvailable(ctx);
   const localWarnings = [...warnings];
   let immediatelyActionable = true;
-
-  if (grossContribution > headroom) {
-    localWarnings.push(
-      headroom > 0
-        ? `Required gross contribution (${fmt(grossContribution)}) exceeds available Annual Allowance ` +
-            `headroom (${fmt(headroom)}). A partial contribution may still partially restore eligibility. ` +
-            "Check whether prior-year carry-forward data is complete."
-        : "Annual Allowance headroom is exhausted. No further pension contributions are possible " +
-            "this year without triggering an Annual Allowance charge."
-    );
-    immediatelyActionable = false;
-  }
 
   // Prefer salary sacrifice (also saves NIC) unless NMW would be breached
   const useSIPP = wouldBreachNMW(parent, grossContribution, config);
@@ -219,6 +189,21 @@ function buildPensionRecommendation(
     if (useSIPP) p.personalPensionContributions.reliefAtSourceNet += netPaid;
     else p.salarySacrifice.pension += grossContribution;
   });
+
+  // A contribution above the available headroom triggers an Annual Allowance
+  // charge. The re-run household already includes it in income tax, so the
+  // net gain reflects it; flag it so the user can see why.
+  if (grossContribution > headroom) {
+    const chargeOf = (r: CalculationResult) =>
+      key === "parentA" ? r.parentA.pensionCapacity.annualAllowanceCharge : r.parentB!.pensionCapacity.annualAllowanceCharge;
+    const extraCharge = chargeOf(sim.after) - chargeOf(ctx.base);
+    localWarnings.unshift(
+      `This contribution (${fmt(grossContribution)} gross) is more than your Annual Allowance headroom ` +
+        `(${fmt(headroom)}), so it would trigger an Annual Allowance charge of about ${fmt(extraCharge)}. ` +
+        "The net gain shown includes that charge. Check that prior-year carry-forward data is complete."
+    );
+    immediatelyActionable = false;
+  }
 
   if (useSIPP) {
     localWarnings.push(

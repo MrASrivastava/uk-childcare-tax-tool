@@ -51,10 +51,13 @@ describe("tax year configs", () => {
   const years = Object.values(TAX_YEAR_CONFIGS);
   const reference = years[0];
 
+  /** Maps keyed by tax year, whose keys legitimately differ between years. */
+  const YEAR_KEYED = new Set(["pension.annualAllowanceHistory"]);
+
   /** Every key path in `shape`, e.g. "tfc.maxTopUpPerChildPerYear". */
   function keyPaths(shape: object, prefix = ""): string[] {
     return Object.entries(shape).flatMap(([k, v]) =>
-      v && typeof v === "object" && !Array.isArray(v)
+      v && typeof v === "object" && !Array.isArray(v) && !YEAR_KEYED.has(`${prefix}${k}`)
         ? keyPaths(v as object, `${prefix}${k}.`)
         : [`${prefix}${k}`]
     );
@@ -64,6 +67,14 @@ describe("tax year configs", () => {
     for (const path of keyPaths(reference)) {
       const value = path.split(".").reduce<unknown>((o, k) => (o as Record<string, unknown>)[k], config);
       expect(value, path).not.toBeUndefined();
+    }
+  });
+
+  it.each(years.map((c) => [c.taxYear, c] as const))("%s has Annual Allowance figures for itself and the three prior years", (year, config) => {
+    const start = parseInt(year.slice(0, 4), 10);
+    for (let n = 0; n <= 3; n++) {
+      const key = `${start - n}/${String((start - n + 1) % 100).padStart(2, "0")}`;
+      expect(config.pension.annualAllowanceHistory[key], key).toBeDefined();
     }
   });
 

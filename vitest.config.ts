@@ -9,7 +9,7 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/engine-src/**/*.ts'],
       exclude: ['src/engine-src/**/__tests__/**'],
-      thresholds: { lines: 80 },
+      thresholds: { lines: 90 },
     },
   },
 })

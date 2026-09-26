@@ -15,7 +15,6 @@ import type {
   IncomeTaxResult,
   NICResult,
   PersonalAllowanceResult,
-  PensionCapacity,
   AtRiskThreshold,
 } from "../types/output";
 import { getTaxYearConfig } from "../types/constants";
@@ -26,8 +25,6 @@ import {
   calculateEmployeeNIC,
   calculateClass4NIC,
   calculateSalarySacrifice,
-  calculatePensionCarryForward,
-  totalPensionContributionsThisYear,
 } from "./ani";
 import {
   parentWorkingEligibilityFlag,
@@ -40,6 +37,7 @@ import {
   tfcTopUpValue,
 } from "./eligibility";
 import { computeOptimisationRecommendations } from "./optimiser";
+import { annualAllowanceTest, buildPensionCapacity } from "./pensions";
 
 function clampDate(d: Date, min: Date, max: Date): Date {
   return d < min ? min : d > max ? max : d;
@@ -96,47 +94,6 @@ function buildNICResult(
  */
 function filesSelfAssessment(parent: import("../types/income").ParentIncome): boolean {
   return parent.selfEmploymentProfit > 0 || parent.rentalIncomeNet > 0;
-}
-
-// ---------------------------------------------------------------------------
-// Pension capacity helper
-// ---------------------------------------------------------------------------
-
-function buildPensionCapacity(
-  parent: { label: string } & import("../types/income").ParentIncome,
-  config: import("../types/constants").TaxYearConfig
-): PensionCapacity {
-  const aa = parent.mpaaTriggered ? config.pension.mpaaAllowance : config.pension.annualAllowance;
-  const totalContributions = totalPensionContributionsThisYear(parent);
-  const remainingHeadroom = Math.max(aa - totalContributions, 0);
-  const carryForward = calculatePensionCarryForward(parent, config);
-  const maxAdditional = carryForward !== null ? remainingHeadroom + carryForward : null;
-
-  const warnings: string[] = [];
-  if (parent.mpaaTriggered) {
-    warnings.push(`MPAA applies: DC pension contributions capped at £${config.pension.mpaaAllowance.toLocaleString()}/year.`);
-  }
-  if (totalContributions > aa) {
-    warnings.push(`Total pension contributions (£${Math.round(totalContributions).toLocaleString()}) exceed Annual Allowance (£${aa.toLocaleString()}). An AA charge may be due.`);
-  }
-  if (carryForward === null) {
-    warnings.push("Prior-year contribution data not provided — carry-forward cannot be calculated.");
-  }
-
-  // Check tapered AA (simplified — full check requires employer contributions)
-  const taperedAAApplies = false; // Would require employer contribution data to compute accurately
-
-  return {
-    parentLabel: parent.label,
-    annualAllowance: aa,
-    totalContributionsThisYear: totalContributions,
-    remainingHeadroomThisYear: remainingHeadroom,
-    carryForwardAvailable: carryForward,
-    maxAdditionalContribution: maxAdditional,
-    mpaaApplies: parent.mpaaTriggered,
-    taperedAAApplies,
-    warnings,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +319,13 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   // ---- Steps 5b–5c: Income tax and NIC per parent --------------------------
-  const parentAITCalc = calculateIncomeTax(parentAANIBreakdown, parentAPA, inputs.parentA, config);
+  // ---- Annual Allowance (feeds the income tax figure via the AA charge) -----
+  const parentAAA = annualAllowanceTest(inputs.parentA, parentAANIBreakdown, config);
+  const parentBAA = inputs.parentB && parentBANIBreakdown
+    ? annualAllowanceTest(inputs.parentB, parentBANIBreakdown, config)
+    : null;
+
+  const parentAITCalc = calculateIncomeTax(parentAANIBreakdown, parentAPA, inputs.parentA, config, parentAAA.excess);
 
   const parentAITResult: IncomeTaxResult = {
     parentLabel: inputs.parentA.label,
@@ -370,6 +333,7 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     personalAllowance: parentAPA,
     bands: parentAITCalc.bands,
     totalIncomeTax: parentAITCalc.totalIncomeTax,
+    annualAllowanceCharge: parentAITCalc.annualAllowanceCharge,
     taxReductions: parentAITCalc.taxReductions,
     scottishRatesApplied: inputs.parentA.scotlandResident,
   };
@@ -378,13 +342,14 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
 
   const parentBITResult: IncomeTaxResult | null = inputs.parentB && parentBANI !== null && parentBPA !== null
     ? (() => {
-        const calc = calculateIncomeTax(parentBANIBreakdown!, parentBPA, inputs.parentB, config);
+        const calc = calculateIncomeTax(parentBANIBreakdown!, parentBPA, inputs.parentB, config, parentBAA?.excess ?? 0);
         return {
           parentLabel: inputs.parentB.label,
           taxableIncome: calc.taxableIncome,
           personalAllowance: parentBPA,
           bands: calc.bands,
           totalIncomeTax: calc.totalIncomeTax,
+          annualAllowanceCharge: calc.annualAllowanceCharge,
           taxReductions: calc.taxReductions,
           scottishRatesApplied: inputs.parentB.scotlandResident,
         };
@@ -396,9 +361,9 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   // ---- Pension capacity ---------------------------------------------------
-  const parentAPensionCapacity = buildPensionCapacity(inputs.parentA, config);
+  const parentAPensionCapacity = buildPensionCapacity(inputs.parentA, parentAAA, parentAITResult.annualAllowanceCharge, config);
   const parentBPensionCapacity = inputs.parentB
-    ? buildPensionCapacity(inputs.parentB, config)
+    ? buildPensionCapacity(inputs.parentB, parentBAA!, parentBITResult?.annualAllowanceCharge ?? 0, config)
     : null;
 
   // ---- Step 5d: Working parent eligibility flags --------------------------

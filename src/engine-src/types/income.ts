@@ -263,6 +263,20 @@ export interface PriorYearPensionAllowances {
   schemeMemberMinus3Years?: boolean;
 }
 
+/**
+ * Pension input for one prior tax year, for carry-forward.
+ */
+export interface PriorYearPensionInput {
+  /** e.g. "2023/24" */
+  taxYear: string;
+  /** Total pension input that year (employee + employer + DB input) */
+  totalPensionInput: number;
+  /** Whether the person was a member of a registered pension scheme that year */
+  wasMember: boolean;
+  /** That year's tapered Annual Allowance, if the taper applied */
+  taperedAA?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Main parent income interface
 // ---------------------------------------------------------------------------
@@ -378,10 +392,29 @@ export interface ParentIncome {
   mpaaTriggered: boolean;
 
   /**
-   * Prior year pension contribution history — used to calculate carry-forward.
-   * If not provided, the tool will note carry-forward capacity is unknown.
+   * @deprecated Use priorYears. Still honoured when priorYears is absent.
    */
   priorYearPensionAllowances: PriorYearPensionAllowances | null;
+
+  /**
+   * Pension inputs for the three prior tax years, for carry-forward. If
+   * neither this nor priorYearPensionAllowances is given, carry-forward is
+   * reported as unknown.
+   */
+  priorYears?: PriorYearPensionInput[];
+
+  /**
+   * Employer pension contributions for the year, NOT including salary
+   * sacrifice (which is legally an employer contribution but is entered
+   * separately). They count towards the Annual Allowance and adjusted income.
+   */
+  employerPensionContributions?: number;
+
+  /**
+   * Defined benefit pension input amount for the year, from the scheme's
+   * pension savings statement. Null or omitted if not in a DB scheme.
+   */
+  dbPensionInputAmount?: number | null;
 
   // ---- Location & personal flags ----------------------------------------
 

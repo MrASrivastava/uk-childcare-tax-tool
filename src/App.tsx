@@ -833,6 +833,22 @@ function ParentForm({
           >
             Pension status
           </div>
+          <NumField
+            label="Employer pension contributions"
+            step={500}
+            tooltip={TT.employerPension}
+            value={parent.employerPensionContributions ?? 0}
+            onChange={(v) => set({ employerPensionContributions: v })}
+            hint="Not including your salary sacrifice (entered above)"
+          />
+          <NumField
+            label="Defined benefit pension input amount"
+            step={1000}
+            tooltip={TT.dbPensionInput}
+            value={parent.dbPensionInputAmount ?? 0}
+            onChange={(v) => set({ dbPensionInputAmount: v > 0 ? v : null })}
+            hint="From your scheme's pension savings statement; 0 if none"
+          />
           <Toggle
             label="MPAA triggered (flexibly accessed pension)"
             value={parent.mpaaTriggered}
@@ -1344,8 +1360,11 @@ function PensionCapacityPanel({
         <div style={{ padding: "0 14px 14px", borderTop: "1px solid #f3f4f6", background: "#f9fafb" }}>
           <MetricGrid
             items={[
-              { label: "Annual Allowance", value: fmt(capacity.annualAllowance), colour: capacity.mpaaApplies ? "#dc2626" : undefined },
-              { label: "Contributions this year", value: fmt(capacity.totalContributionsThisYear) },
+              { label: capacity.taperedAAApplies ? "Annual Allowance (tapered)" : "Annual Allowance", value: fmt(capacity.annualAllowance), colour: capacity.mpaaApplies || capacity.taperedAAApplies ? "#dc2626" : undefined },
+              { label: "Pension input this year", value: fmt(capacity.totalContributionsThisYear) },
+              ...(capacity.annualAllowanceCharge > 0
+                ? [{ label: "Annual Allowance charge", value: fmt(capacity.annualAllowanceCharge), colour: "#dc2626" }]
+                : []),
               { label: "Remaining headroom", value: fmt(capacity.remainingHeadroomThisYear), colour: "#16a34a" },
               ...(capacity.carryForwardAvailable !== null
                 ? [{ label: "Carry-forward (3yr)", value: fmt(capacity.carryForwardAvailable), colour: "#4f46e5" }]

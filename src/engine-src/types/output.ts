@@ -129,6 +129,8 @@ export interface IncomeTaxResult {
   personalAllowance: number;
   bands: TaxBandResult[];
   totalIncomeTax: number;
+  /** Annual Allowance charge included in totalIncomeTax */
+  annualAllowanceCharge: number;
   /** Tax reductions applied after the band calculation (rental finance costs) */
   taxReductions: number;
   /** Whether Scottish rates were applied */
@@ -295,16 +297,25 @@ export interface HouseholdSummary {
 
 export interface PensionCapacity {
   parentLabel: string;
-  /** Annual Allowance for this tax year (standard or tapered) */
+  /** Annual Allowance for this tax year, after any taper (before the MPAA) */
   annualAllowance: number;
-  /** Total contributions made this year across all arrangements */
+  /** Total pension input this year: employee, employer and DB input */
   totalContributionsThisYear: number;
-  /** Remaining headroom in this year's Annual Allowance */
+  moneyPurchaseInput: number;
+  definedBenefitInput: number;
+  /** Threshold and adjusted income for the tapered Annual Allowance */
+  thresholdIncome: number;
+  adjustedIncome: number;
+  /** Remaining headroom in this year's Annual Allowance (MPAA-limited if triggered) */
   remainingHeadroomThisYear: number;
   /** Carry-forward available from prior 3 years (null if data not provided) */
   carryForwardAvailable: number | null;
-  /** Maximum additional contribution possible this year (headroom + carry-forward) */
+  /** Maximum additional contribution possible this year without a charge */
   maxAdditionalContribution: number | null;
+  /** Pension input above the allowances */
+  annualAllowanceExcess: number;
+  /** Tax on the excess (included in income tax) */
+  annualAllowanceCharge: number;
   /** Whether MPAA applies */
   mpaaApplies: boolean;
   /** Whether tapered AA applies */

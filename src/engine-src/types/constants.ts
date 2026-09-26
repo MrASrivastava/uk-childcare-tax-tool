@@ -105,11 +105,25 @@ export interface PensionConfig {
   /** Minimum tapered Annual Allowance */
   taperedAA_minimum: number;
   /**
-   * Annual Allowance in each of the three prior tax years, most recent first.
-   * Carry-forward from a year is limited to that year's allowance.
+   * Annual Allowance and taper figures by tax year, covering this year and
+   * the three before it (for carry-forward, which uses each year's own
+   * allowance).
    */
-  priorYearAnnualAllowances: [number, number, number];
+  annualAllowanceHistory: Record<string, AnnualAllowanceYear>;
 }
+
+export interface AnnualAllowanceYear {
+  aa: number;
+  /** Adjusted income above which the allowance tapers */
+  taperAdjusted: number;
+  /** Threshold income at or below which there is no taper */
+  taperThreshold: number;
+  /** Minimum tapered allowance */
+  taperMin: number;
+}
+
+const AA_2022_23: AnnualAllowanceYear = { aa: 40_000, taperAdjusted: 240_000, taperThreshold: 200_000, taperMin: 4_000 };
+const AA_FROM_2023_24: AnnualAllowanceYear = { aa: 60_000, taperAdjusted: 260_000, taperThreshold: 200_000, taperMin: 10_000 };
 
 export interface EVBiKConfig {
   /** Tax year → BIK rate for pure electric vehicles */
@@ -349,8 +363,12 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
     taperedAA_thresholdIncome: 200_000,
     taperedAA_adjustedIncome: 260_000,
     taperedAA_minimum: 10_000,
-    // 2024/25, 2023/24, 2022/23 (the AA was £40,000 until 2022/23)
-    priorYearAnnualAllowances: [60_000, 60_000, 40_000],
+    annualAllowanceHistory: {
+      "2022/23": { ...AA_2022_23 },
+      "2023/24": { ...AA_FROM_2023_24 },
+      "2024/25": { ...AA_FROM_2023_24 },
+      "2025/26": { ...AA_FROM_2023_24 },
+    },
   },
 
   evBiKRate: 0.03,
@@ -465,8 +483,12 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
     taperedAA_thresholdIncome: 200_000,
     taperedAA_adjustedIncome: 260_000,
     taperedAA_minimum: 10_000,
-    // 2025/26, 2024/25, 2023/24
-    priorYearAnnualAllowances: [60_000, 60_000, 60_000],
+    annualAllowanceHistory: {
+      "2023/24": { ...AA_FROM_2023_24 },
+      "2024/25": { ...AA_FROM_2023_24 },
+      "2025/26": { ...AA_FROM_2023_24 },
+      "2026/27": { ...AA_FROM_2023_24 },
+    },
   },
 
   evBiKRate: 0.04,

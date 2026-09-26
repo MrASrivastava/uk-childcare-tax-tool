@@ -17,6 +17,7 @@
 
 import type { OtherSacrifice, ParentIncome, RSUVest } from "../types/income";
 import type { ANIBreakdown } from "../types/output";
+import { carryForward, priorYearInputs } from "./pensions";
 import type { PayFrequency, TaxYearConfig } from "../types/constants";
 
 /** Gross personal contributions always relievable, even with no earnings. */
@@ -529,8 +530,9 @@ export function calculateIncomeTax(
   aniBreakdown: ANIBreakdown,
   effectivePA: number,
   parent: ParentIncome,
-  config: TaxYearConfig
-): { taxableIncome: number; totalIncomeTax: number; bands: TaxBandRow[]; taxReductions: number } {
+  config: TaxYearConfig,
+  annualAllowanceExcess = 0
+): { taxableIncome: number; totalIncomeTax: number; bands: TaxBandRow[]; taxReductions: number; annualAllowanceCharge: number } {
   const bandExtension = aniBreakdown.step2GiftAidDeduction + aniBreakdown.step3PensionDeduction;
 
   const savings = Math.max(parent.savingsInterestNonISA, 0);
@@ -630,7 +632,20 @@ export function calculateIncomeTax(
     grossTax
   );
 
-  return { taxableIncome, totalIncomeTax: grossTax - taxReductions, bands: rows, taxReductions };
+  // Annual Allowance charge: the excess pension input is taxed as the top
+  // slice of income at the non-savings rates (Scottish rates for Scottish
+  // taxpayers). PTM056100.
+  const rowsBefore = rows.length;
+  charge(position + taxableDividends - dividendAllowanceUsed, Math.max(annualAllowanceExcess, 0), "annual allowance charge ", nonSavingsBands, (i) => nonSavingsBands[i].rate);
+  const annualAllowanceCharge = rows.slice(rowsBefore).reduce((sum, r) => sum + r.taxCharged, 0);
+
+  return {
+    taxableIncome,
+    totalIncomeTax: grossTax - taxReductions + annualAllowanceCharge,
+    bands: rows,
+    taxReductions,
+    annualAllowanceCharge,
+  };
 }
 
 /**
@@ -653,14 +668,15 @@ function extendBands<T extends { from: number; to: number }>(
 }
 
 // ---------------------------------------------------------------------------
-// Pension carry-forward calculation
+// Pension carry-forward (see pensions.ts for the full Annual Allowance test)
 // ---------------------------------------------------------------------------
 
 /**
  * calculatePensionCarryForward
  *
- * Computes the carry-forward available from the prior 3 tax years.
- * Returns null if prior year data was not provided.
+ * Unused Annual Allowance available from the prior three tax years, using
+ * each year's own allowance and only years of scheme membership. Returns null
+ * if prior-year data was not provided.
  *
  * rules.md §4.2 and §6.6.
  */
@@ -668,37 +684,18 @@ export function calculatePensionCarryForward(
   parent: ParentIncome,
   config: TaxYearConfig
 ): number | null {
-  if (parent.priorYearPensionAllowances === null) return null;
-  if (parent.mpaaTriggered) return null; // Carry-forward cannot extend beyond MPAA for DC
-
-  const prior = parent.priorYearPensionAllowances;
-  const [aa1, aa2, aa3] = config.pension.priorYearAnnualAllowances;
-
-  // Unused allowance from each year, capped at that year's own Annual
-  // Allowance, and only for years in which the person was a scheme member.
-  // The current year's allowance is used first: callers add this on top of
-  // the remaining current-year headroom.
-  const unused = (aa: number, used: number, member: boolean | undefined) =>
-    member === false ? 0 : Math.max(aa - used, 0);
-
-  return (
-    unused(aa1, prior.totalContributionsMinus1Year, prior.schemeMemberMinus1Year) +
-    unused(aa2, prior.totalContributionsMinus2Years, prior.schemeMemberMinus2Years) +
-    unused(aa3, prior.totalContributionsMinus3Years, prior.schemeMemberMinus3Years)
-  );
+  const prior = priorYearInputs(parent, config.taxYear);
+  return prior ? carryForward(prior, config.taxYear, config) : null;
 }
 
 /**
- * Sums all pension contributions made by a parent across all arrangement types
- * in the current tax year (for Annual Allowance checking).
- *
- * Employer contributions are not included here — they are included in the
- * Annual Allowance but are typically an input from the employer scheme documentation.
+ * @deprecated Use pensionInputs() in pensions.ts, which also counts employer
+ * contributions and DB accrual. Employee contributions only.
  */
 export function totalPensionContributionsThisYear(parent: ParentIncome): number {
   return (
-    parent.salarySacrifice.pension +                                    // Salary sacrifice
-    parent.personalPensionContributions.reliefAtSourceNet / 0.8 +       // Gross relief-at-source
-    parent.personalPensionContributions.netPayArrangementGross           // Net pay arrangement
+    parent.salarySacrifice.pension +
+    parent.personalPensionContributions.reliefAtSourceNet / 0.8 +
+    parent.personalPensionContributions.netPayArrangementGross
   );
 }

@@ -103,7 +103,7 @@ Example: Member pays £8,000 net into a personal pension or SIPP → provider cl
 **Annual Allowance constraint:** Total pension contributions (employer + employee, all sources) must not exceed the Annual Allowance in any tax year:
 - Standard Annual Allowance 2025/26: £60,000
 - Money Purchase Annual Allowance (MPAA — triggered if flexible drawdown accessed): £10,000
-- Tapered Annual Allowance: applies where both threshold income > £200,000 AND adjusted income > £260,000. Minimum tapered allowance: £10,000.
+- Tapered Annual Allowance: applies where both threshold income > £200,000 AND adjusted income > £260,000. Minimum tapered allowance: £10,000. See §6.5.
 - Carry forward: up to 3 prior years' unused allowance may be added to current year's limit, subject to rules. Cannot carry forward if the MPAA has been triggered.
 
 **Important:** The tool must warn if a recommended pension contribution would breach the Annual Allowance or MPAA.
@@ -685,30 +685,38 @@ For ANI:
   ANI addition = V − T (net of transferred employer NIC)
 ```
 
-### 6.5 Pension Annual Allowance — Tapered Allowance
+### 6.5 Pension Annual Allowance — inputs, taper and charge
 
-Tapered Annual Allowance applies where:
-- **Threshold income** > £200,000 AND
-- **Adjusted income** > £260,000
+**Pension input** for the year is the sum of:
+- employee contributions by every route (salary sacrifice, net pay, relief at source grossed up);
+- employer contributions (salary sacrifice is legally an employer contribution; the tool collects other employer contributions separately so it isn't counted twice);
+- the defined benefit pension input amount, from the scheme's pension savings statement.
 
-Threshold income = net income (Step 1 of ANI calculation) excluding pension contributions made under net pay arrangements.
-Adjusted income = threshold income + employer pension contributions.
+The tool treats salary sacrifice and employer contributions as money purchase inputs, and assumes net pay contributions go to the DB scheme when a DB input amount is given.
 
-Where tapered allowance applies:
+**Taper** (PTM057100). The allowance falls by £1 for every £2 of adjusted income over £260,000, only if threshold income exceeds £200,000, to a minimum of £10,000.
+- **Threshold income** = net income − gross relief-at-source contributions + pension salary sacrifice set up after 8 July 2015.
+- **Adjusted income** = net income + net pay member contributions + employer contributions (including salary sacrifice) + for DB, the pension input amount less member contributions.
+
 ```
-Tapered AA = max(60000 − (adjusted_income − 260000) ÷ 2, 10000)
+Tapered AA = max(60000 − floor((adjusted_income − 260000) ÷ 2), 10000)
 ```
 
-The tool must check both threshold income AND adjusted income before recommending pension contributions near these levels.
+Examples: threshold £250k, adjusted £300k → £40k. Adjusted £360k or more → £10k. Threshold £190k → no taper, whatever the adjusted income.
+
+For 2022/23 the figures were an allowance of £40,000, taper from £240,000 adjusted income, and a £4,000 minimum.
+
+**Carry-forward.** The current year's allowance is used first, then unused allowance from the three prior years, oldest first. Each year contributes up to its own allowance (tapered, if it was), and only if the person was a member of a registered scheme that year. With no prior inputs and membership throughout, carry-forward into 2025/26 is £60,000 + £60,000 + £40,000 = £160,000.
+
+**Annual Allowance charge.** Pension input above the available allowance is taxed as the top slice of income at the non-savings rates (Scottish rates for Scottish taxpayers). The tool adds it to income tax, so take-home and the optimiser's scenarios include it. A recommended contribution above the headroom is flagged with its charge.
 
 ### 6.6 MPAA (Money Purchase Annual Allowance)
 
 Once a person has flexibly accessed a money purchase pension (e.g. drawn down a lump sum from a SIPP), the MPAA is triggered. From that point:
-- The allowance for money purchase (defined contribution) contributions = **£10,000** (not £60,000)
-- Carry forward rules do **not** apply to money purchase contributions after MPAA is triggered
-- The remaining £50,000 of the standard AA may be used for defined benefit pension accrual only
+- If money purchase inputs exceed the MPAA (**£10,000**), the excess over £10,000 is chargeable, with no carry-forward. Other (DB) inputs are then tested against the **alternative allowance** (the allowance less £10,000, so £50,000 untapered), which can use carry-forward.
+- If money purchase inputs are within the MPAA, the normal allowance applies to all inputs. Example: MP £8,000 + DB £55,000 = £63,000 against £60,000 → excess £3,000.
 
-**Tool implementation:** Include a flag "Have you ever flexibly accessed a pension?" If yes, apply MPAA rules and warn before recommending large pension contributions.
+**Tool implementation:** a flag "Have you ever flexibly accessed a pension?" applies these rules, and headroom for further money purchase contributions is limited to what is left of the £10,000.
 
 ### 6.7 Jurisdictional Differences Summary
 
