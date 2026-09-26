@@ -45,7 +45,7 @@ describe("N4 — multi-year", () => {
 });
 
 describe("N5 — Class 1 NIC per pay period", () => {
-  it.fails("£40k salary + £30k bonus in month 9 gives about £2,845", () => {
+  it("£40k salary + £30k bonus in month 9 gives about £2,845", () => {
     const r = calculate(household({
       parentA: parent(40_000, { bonus: { expectedThisYear: 30_000, isDiscretionary: true, paymentMonth: 9 } as ParentIncome["bonus"] }),
     }));

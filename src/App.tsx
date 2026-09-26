@@ -47,6 +47,7 @@ import type {
   ANIBreakdown,
   PensionCapacity,
   MinimumIncomeAgeBand,
+  PayFrequency,
   TaxYear,
 } from "./engine-src/index";
 
@@ -165,7 +166,7 @@ function defaultParentA(): ParentIncome {
   return {
     ...createEmptyParentIncome("Parent A"),
     grossSalary: 95_000,
-    bonus: { expectedThisYear: 8_000, isDiscretionary: true },
+    bonus: { expectedThisYear: 8_000, isDiscretionary: true, paymentMonth: 12 },
     savingsInterestNonISA: 2_000,
   };
 }
@@ -443,6 +444,15 @@ function ParentForm({
         onChange={(v) => set({ bonus: { ...parent.bonus, expectedThisYear: v } })}
         tooltip={TT.bonus}
       />
+      {parent.bonus.expectedThisYear > 0 && (
+        <SelectField
+          label="Bonus paid in"
+          tooltip={TT.bonusMonth}
+          value={String(parent.bonus.paymentMonth ?? "")}
+          onChange={(v) => set({ bonus: { ...parent.bonus, paymentMonth: v ? Number(v) : null } })}
+          options={[["", "Not sure (spread over the year)"], ...BONUS_MONTHS]}
+        />
+      )}
       <NumField
         label="RSU vesting value this tax year"
         step={5000}
@@ -749,6 +759,36 @@ function ParentForm({
               marginTop: 4,
             }}
           >
+            Payroll
+          </div>
+          <SelectField
+            label="Paid"
+            tooltip={TT.payFrequency}
+            value={parent.payFrequency ?? "monthly"}
+            onChange={(v) => set({ payFrequency: v as PayFrequency })}
+            options={[["monthly", "Monthly"], ["four_weekly", "Every 4 weeks"], ["fortnightly", "Fortnightly"], ["weekly", "Weekly"]]}
+          />
+          <Toggle
+            label="Company director"
+            value={parent.isDirector ?? false}
+            tooltip={TT.director}
+            onChange={(v) => set({ isDirector: v })}
+          />
+          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: -4, marginBottom: 10 }}>
+            NIC estimated per pay period; payroll may differ by a few pounds.
+          </div>
+
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#6b7280",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              marginBottom: 6,
+              marginTop: 4,
+            }}
+          >
             Childcare minimum income test
           </div>
           <NumField
@@ -827,6 +867,42 @@ function ParentForm({
     </div>
   );
 }
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  tooltip,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: [string, string][];
+  tooltip?: string;
+}) {
+  return (
+    <div style={{ marginBottom: 11 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b", marginBottom: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        {label} {tooltip && <Tip text={tooltip} />}
+      </label>
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ width: "100%", padding: "4px 7px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 12 }}
+      >
+        {options.map(([v, text]) => <option key={v} value={v}>{text}</option>)}
+      </select>
+    </div>
+  );
+}
+
+/** Tax months for the bonus payment selector: 1 = 6 April–5 May. */
+const BONUS_MONTHS: [string, string][] = [
+  "April", "May", "June", "July", "August", "September",
+  "October", "November", "December", "January", "February", "March",
+].map((m, i) => [String(i + 1), `${m} payroll`]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Children form

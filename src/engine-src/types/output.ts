@@ -140,6 +140,8 @@ export interface NICResult {
   grossPayForNIC: number;             // Post-sacrifice cash earnings for Class 1 NIC (excludes BiKs)
   /** Employee Class 1 NIC on employment earnings */
   class1Employee: number;
+  /** Class 1 NIC in each pay period (a single entry for a director's annual earnings period) */
+  class1ByPeriod: number[];
   /** Class 4 NIC on self-employed profits */
   class4: number;
   /** Class 1 + Class 4: all National Insurance the parent pays */

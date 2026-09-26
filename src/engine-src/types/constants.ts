@@ -13,6 +13,9 @@
 
 export type TaxYear = "2025/26" | "2026/27";
 
+/** How often a parent is paid; Class 1 NIC is worked out per pay period. */
+export type PayFrequency = "weekly" | "fortnightly" | "four_weekly" | "monthly";
+
 /** Age band for the childcare minimum income test (apprentices use the lowest rate). */
 export type MinimumIncomeAgeBand = "21_plus" | "18_to_20" | "under_18_or_apprentice";
 
@@ -132,6 +135,13 @@ export interface TaxYearConfig {
   /** Employee Class 1 NIC bands */
   employeeNICBands: NICBand[];
 
+  /**
+   * Employee Class 1 thresholds per earnings period, as published by HMRC
+   * (they are rounded, so not simply the annual figures divided). The rates
+   * are those in employeeNICBands.
+   */
+  class1Periods: Record<PayFrequency, { primaryThreshold: number; upperEarningsLimit: number }>;
+
   /** Class 4 NIC on self-employed profits (independent of any Class 1) */
   class4NIC: {
     lowerProfitsLimit: number;
@@ -244,6 +254,7 @@ function sourcesFor(): ConfigSource[] {
     unverified("scottishIncomeTaxBands", "https://www.gov.uk/scottish-income-tax"),
     unverified("employeeNICBands, employerNICRate", "https://www.gov.uk/national-insurance-rates-letters"),
     unverified("class4NIC", "https://www.gov.uk/self-employed-national-insurance-rates"),
+    unverified("class1Periods", "https://www.gov.uk/guidance/rates-and-thresholds-for-employers-2026-to-2027"),
     unverified("nationalMinimumWageHourly, minimumWageByAgeBand", "https://www.gov.uk/national-minimum-wage-rates"),
     unverified("childBenefit", "https://www.gov.uk/child-benefit-rates"),
     unverified("hicbc", "https://www.gov.uk/child-benefit-tax-charge"),
@@ -286,6 +297,13 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
     { from: 12_570,  to: 50_270,   rate: 0.08 },
     { from: 50_270,  to: Infinity, rate: 0.02 },
   ],
+
+  class1Periods: {
+    weekly:      { primaryThreshold: 242,   upperEarningsLimit: 967 },
+    fortnightly: { primaryThreshold: 484,   upperEarningsLimit: 1_934 },
+    four_weekly: { primaryThreshold: 967,   upperEarningsLimit: 3_867 },
+    monthly:     { primaryThreshold: 1_048, upperEarningsLimit: 4_189 },
+  },
 
   class4NIC: { lowerProfitsLimit: 12_570, upperProfitsLimit: 50_270, mainRate: 0.06, additionalRate: 0.02 },
 
@@ -394,6 +412,13 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
     { from: 12_570,  to: 50_270,   rate: 0.08 },
     { from: 50_270,  to: Infinity, rate: 0.02 },
   ],
+
+  class1Periods: {
+    weekly:      { primaryThreshold: 242,   upperEarningsLimit: 967 },
+    fortnightly: { primaryThreshold: 484,   upperEarningsLimit: 1_934 },
+    four_weekly: { primaryThreshold: 967,   upperEarningsLimit: 3_867 },
+    monthly:     { primaryThreshold: 1_048, upperEarningsLimit: 4_189 },
+  },
 
   class4NIC: { lowerProfitsLimit: 12_570, upperProfitsLimit: 50_270, mainRate: 0.06, additionalRate: 0.02 },
 

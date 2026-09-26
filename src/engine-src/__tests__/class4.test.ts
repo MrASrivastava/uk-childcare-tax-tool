@@ -15,9 +15,10 @@ describe("Class 4 NIC (N1)", () => {
 
   it("works out Class 1 and Class 4 independently, without a warning below the UEL", () => {
     const r = nic(parent(30_000, { selfEmploymentProfit: 30_000 }));
-    expect(r.parentA.nic.class1Employee).toBeCloseTo(1_394.4, 2);
+    // Class 1 is per pay period (monthly thresholds), so within £5 of the annual £1,394.40
+    expect(Math.abs(r.parentA.nic.class1Employee - 1_394.4)).toBeLessThan(5);
     expect(r.parentA.nic.class4).toBeCloseTo(1_045.8, 2);
-    expect(r.parentA.nic.totalEmployeeNIC).toBeCloseTo(2_440.2, 2);
+    expect(r.parentA.nic.totalEmployeeNIC).toBeCloseTo(r.parentA.nic.class1Employee + 1_045.8, 2);
     expect(r.inputWarnings.some((w) => w.includes("annual maximum"))).toBe(false);
   });
 

@@ -60,7 +60,7 @@ export {
   TAX_YEAR_CONFIGS,
 } from "./types/constants";
 
-export type { TaxYear, TaxYearConfig, MinimumIncomeAgeBand, ConfigSource } from "./types/constants";
+export type { TaxYear, TaxYearConfig, MinimumIncomeAgeBand, ConfigSource, PayFrequency } from "./types/constants";
 
 // Utility: empty parent template for UI forms
 export { createEmptyParentIncome } from "./types/income";

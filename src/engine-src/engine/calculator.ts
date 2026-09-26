@@ -57,6 +57,7 @@ function buildNICResult(
   warnings: string[]
 ): NICResult {
   const class1 = calculateEmployeeNIC(parent, config);
+  warnings.push(...class1.warnings);
   const class4 = calculateClass4NIC(parent, config);
 
   // The annual maximum can cap combined Class 1 and Class 4 when both are
@@ -80,6 +81,7 @@ function buildNICResult(
     parentLabel: parent.label,
     grossPayForNIC: class1.employmentIncomeForNIC,
     class1Employee: class1.employeeNIC,
+    class1ByPeriod: class1.byPeriod,
     class4,
     totalEmployeeNIC: total,
     employeeNIC: total,

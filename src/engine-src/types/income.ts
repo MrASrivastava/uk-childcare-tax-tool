@@ -9,7 +9,7 @@
  * what data the UI must collect.
  */
 
-import type { MinimumIncomeAgeBand, TaxYear } from "./constants";
+import type { MinimumIncomeAgeBand, PayFrequency, TaxYear } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Enumerations
@@ -135,6 +135,13 @@ export interface BonusInputs {
    * Optional — used only when the tool models deferral scenarios.
    */
   expectedNextYear?: number;
+
+  /**
+   * Tax month the bonus is paid in: 1 = 6 April–5 May, … 12 = 6 March–5 April.
+   * Class 1 NIC is charged in the pay period it is paid. If omitted, the bonus
+   * is spread evenly across the year and a warning is shown.
+   */
+  paymentMonth?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +428,12 @@ export interface ParentIncome {
    * year. Class 4 NIC is then not payable.
    */
   statePensionAgeReached?: boolean;
+
+  /** How often the parent is paid. Class 1 NIC is worked out per pay period. Default monthly. */
+  payFrequency?: PayFrequency;
+
+  /** Company directors normally use an annual earnings period for Class 1 NIC. */
+  isDirector?: boolean;
 
   /**
    * Contracted hours per week. Used to check that salary sacrifice does not

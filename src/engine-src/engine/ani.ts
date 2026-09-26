@@ -17,7 +17,7 @@
 
 import type { OtherSacrifice, ParentIncome, RSUVest } from "../types/income";
 import type { ANIBreakdown } from "../types/output";
-import type { TaxYearConfig } from "../types/constants";
+import type { PayFrequency, TaxYearConfig } from "../types/constants";
 
 /** Gross personal contributions always relievable, even with no earnings. */
 const RELIEVABLE_CONTRIBUTION_FLOOR = 3_600;
@@ -379,51 +379,103 @@ export function calculatePersonalAllowance(
 // NIC calculation for the employee
 // ---------------------------------------------------------------------------
 
+const PERIODS_PER_YEAR: Record<PayFrequency, number> = {
+  weekly: 52,
+  fortnightly: 26,
+  four_weekly: 13,
+  monthly: 12,
+};
+const DAYS_PER_PERIOD: Record<Exclude<PayFrequency, "monthly">, number> = {
+  weekly: 7,
+  fortnightly: 14,
+  four_weekly: 28,
+};
+
+/** Tax month (0 = 6 April–5 May … 11 = 6 March–5 April) containing a date. */
+function taxMonthIndex(date: Date, taxYearStart: number): number {
+  const months = (date.getUTCFullYear() - taxYearStart) * 12 + date.getUTCMonth() - 3;
+  return Math.min(Math.max(date.getUTCDate() >= 6 ? months : months - 1, 0), 11);
+}
+
+/** Pay period index containing a date, for a given pay frequency. */
+function periodIndex(date: Date, taxYearStart: number, frequency: PayFrequency): number {
+  if (frequency === "monthly") return taxMonthIndex(date, taxYearStart);
+  const days = Math.floor((date.getTime() - Date.UTC(taxYearStart, 3, 6)) / 86_400_000);
+  return Math.min(Math.max(Math.floor(days / DAYS_PER_PERIOD[frequency]), 0), PERIODS_PER_YEAR[frequency] - 1);
+}
+
+/** Employee Class 1 on one period's earnings, given that period's thresholds. */
+function class1OnPeriod(earnings: number, pt: number, uel: number, config: TaxYearConfig): number {
+  const [main, additional] = config.employeeNICBands;
+  return Math.max(Math.min(earnings, uel) - pt, 0) * main.rate + Math.max(earnings - uel, 0) * additional.rate;
+}
+
 /**
  * calculateEmployeeNIC
  *
- * Calculates employee Class 1 NIC.
- * NIC is charged on post-sacrifice employment income only (not investment income).
+ * Employee Class 1 NIC, worked out per earnings period as payroll does.
+ * NIC is charged on post-sacrifice employment earnings only (not investment
+ * income, and not benefits in kind, which attract employer-only Class 1A).
  *
- * For RSU vests where employer NIC is transferred:
- *   Employee NIC base = grossRSUValue (NOT net of employer NIC transfer)
- *   See rules.md §6.4.
+ *   - Base pay (salary after sacrifice + cash allowances) is spread evenly
+ *     over the pay periods.
+ *   - A bonus is added to the period it is paid in (bonus.paymentMonth), or
+ *     spread evenly if that is unknown (with a warning).
+ *   - Each RSU vest's GROSS value (not reduced by any transferred employer
+ *     NIC — rules.md §6.4) is added to the period containing the vest date.
+ *   - Each period is charged using that period's published thresholds.
+ *   - Directors use an annual earnings period and the annual thresholds.
  *
- * For all other employment income: NIC base = post-sacrifice employment income.
+ * Mid-year pay changes and HMRC's exact-percentage v table methods are not
+ * modelled, so payroll may differ by a few pounds.
  */
 export function calculateEmployeeNIC(
   parent: ParentIncome,
   config: TaxYearConfig
-): { employmentIncomeForNIC: number; employeeNIC: number } {
+): { employmentIncomeForNIC: number; employeeNIC: number; byPeriod: number[]; warnings: string[] } {
   const sacrifice = calculateSalarySacrifice(parent, config);
   const startYear = taxYearStartYear(config.taxYear);
+  const warnings: string[] = [];
 
-  // RSU gross values for NIC (not net of employer NIC transfer — see rules.md §6.4)
-  const rsuGrossForNIC = parent.rsuVests
-    .filter((v) => isVestInTaxYear(v.vestDate, startYear))
-    .reduce((sum, v) => sum + v.grossValue, 0);
+  const vests = parent.rsuVests.filter((v) => isVestInTaxYear(v.vestDate, startYear));
+  const basePay = Math.max(sacrifice.postSacrificeSalary + parent.cashAllowances, 0);
+  const bonus = parent.bonus.expectedThisYear;
+  const employmentIncomeForNIC = basePay + bonus + vests.reduce((sum, v) => sum + v.grossValue, 0);
 
-  // Employment income for Class 1 NIC purposes:
-  // Post-sacrifice salary + bonuses + cash allowances + RSU GROSS values
-  // (not reduced by transferred employer NIC for NIC purposes).
-  // Benefits in kind are NOT included: they attract employer-only Class 1A NIC.
-  // Net pay pension contributions do NOT reduce the NIC base.
-  // Non-employment income (rental, savings, dividends) is NOT subject to NIC.
-  const employmentIncomeForNIC =
-    sacrifice.postSacrificeSalary +
-    parent.bonus.expectedThisYear +
-    rsuGrossForNIC +
-    parent.cashAllowances;
+  // Directors: annual earnings period
+  if (parent.isDirector) {
+    const [main] = config.employeeNICBands;
+    const nic = class1OnPeriod(employmentIncomeForNIC, main.from, main.to, config);
+    return { employmentIncomeForNIC, employeeNIC: nic, byPeriod: [nic], warnings };
+  }
 
-  let employeeNIC = 0;
-  for (const band of config.employeeNICBands) {
-    if (employmentIncomeForNIC > band.from) {
-      const taxableInBand = Math.min(employmentIncomeForNIC, band.to) - band.from;
-      employeeNIC += taxableInBand * band.rate;
+  const frequency = parent.payFrequency ?? "monthly";
+  const n = PERIODS_PER_YEAR[frequency];
+  const earnings = new Array<number>(n).fill(basePay / n);
+
+  if (bonus > 0) {
+    const month = parent.bonus.paymentMonth;
+    if (month && month >= 1 && month <= 12) {
+      const paid = new Date(Date.UTC(startYear, 3 + month - 1, 6));
+      earnings[periodIndex(paid, startYear, frequency)] += bonus;
+    } else {
+      for (let i = 0; i < n; i++) earnings[i] += bonus / n;
+      warnings.push(
+        `${parent.label}'s bonus payment month isn't set, so it has been spread evenly for National Insurance. ` +
+        "A bonus paid in one month usually costs less NIC; set the month for a more accurate figure."
+      );
     }
   }
 
-  return { employmentIncomeForNIC, employeeNIC };
+  for (const vest of vests) {
+    earnings[periodIndex(new Date(vest.vestDate + "T00:00:00Z"), startYear, frequency)] += vest.grossValue;
+  }
+
+  const { primaryThreshold, upperEarningsLimit } = config.class1Periods[frequency];
+  const byPeriod = earnings.map((e) => class1OnPeriod(e, primaryThreshold, upperEarningsLimit, config));
+  const employeeNIC = byPeriod.reduce((sum, x) => sum + x, 0);
+
+  return { employmentIncomeForNIC, employeeNIC, byPeriod, warnings };
 }
 
 /**

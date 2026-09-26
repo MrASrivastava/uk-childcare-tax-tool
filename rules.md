@@ -524,6 +524,18 @@ Net cash impact: lease is effectively funded at £6,000 − 40% tax saving − 2
 
 **No BiK:** Provided the bike is used primarily for qualifying journeys (commuting), there is no P11D BiK charge.
 
+### 4.5a Other salary sacrifice and the OpRA rules
+
+Under the optional remuneration arrangement (OpRA) rules (ITEPA 2003 s.69A), when salary is given up for a benefit the taxable value is generally the higher of the salary forgone and the benefit's normal value. For income tax and ANI the sacrifice therefore mostly unwinds; employee Class 1 is still saved, but the employer pays Class 1A instead of saving Class 1.
+
+| Kind | ANI / income tax | Employee Class 1 | Employer NIC saving |
+|---|---|---|---|
+| Pay reduction (e.g. buying holiday) | − amount | − amount | 15% of amount |
+| OpRA benefit (gym, technology, dental…) | − forgone + max(forgone, benefit value) | − forgone | none (Class 1A instead) |
+| Excluded benefit (workplace childcare, pension advice) | − amount | − amount | 15% of amount |
+
+Pension contributions, cycle-to-work and cars at 75g/km CO2 or less are outside OpRA and keep the full advantage. A car above 75g/km (most hybrids) is taxed at the higher of the salary given up and the BiK. A bare "other" amount is treated conservatively as an OpRA benefit worth the salary forgone, so it never wrongly reduces ANI.
+
 ### 4.6 Bonus Deferral
 
 **Mechanism:** If ANI is projected to exceed a threshold in the current tax year due to a discretionary bonus, the employer may be asked to defer the bonus payment to the following tax year.
@@ -591,7 +603,7 @@ Scottish rates and bands apply to **non-savings income only**. Savings and divid
 
 **Scotland and childcare:** Scotland has its own childcare entitlement scheme (1,140 hours/year = 30 hours/week for 38 weeks, from age 3). Different funding rates and administration. The £100,000 ANI threshold for TFC applies UK-wide. The free hours threshold: the Scottish scheme has slightly different eligibility rules — the tool must clearly flag jurisdiction.
 
-### 5.3 National Insurance Contributions (Class 1 Employee, 2025/26)
+### 5.3 National Insurance Contributions (2025/26 and 2026/27)
 
 | Band | Rate |
 |---|---|
@@ -602,6 +614,10 @@ Scottish rates and bands apply to **non-savings income only**. Savings and divid
 **Impact of salary sacrifice on NIC:** NIC is calculated on post-sacrifice gross pay. All salary sacrifice arrangements reduce NIC at the applicable rate on the sacrificed amount.
 
 **Benefits in kind** are not subject to employee Class 1 NIC; the employer pays Class 1A NIC on them. Net pay arrangement pension contributions do not reduce the NIC base.
+
+**Earnings periods.** Employee Class 1 is worked out per earnings period, using that period's published thresholds (2025/26 and 2026/27 monthly: primary threshold £1,048, UEL £4,189; weekly £242 / £967). A bonus counts in the period it is paid, and an RSU vest in the period it is processed. Directors normally have an annual earnings period. The tool spreads base pay evenly, puts a bonus in its payment month (or spreads it, with a warning, if the month is unknown) and each RSU vest in the tax month of its vest date. Example: £40,000 salary plus a £30,000 bonus paid in month 9 costs about £2,845, against £3,411 on an annual basis.
+
+**Class 4 (self-employed).** Charged on the year's profits: 6% between the lower profits limit (£12,570) and upper profits limit (£50,270), 2% above. Worked out independently of any Class 1. Not payable by someone over State Pension age at the start of the tax year. Class 2 is no longer payable: since April 2024 the self-employed get an NI credit above the small profits threshold without paying. Where employment earnings alone exceed the UEL and there are also profits, the annual maximum may cap the combined liability; the tool warns rather than applying it.
 
 ### 5.4 Savings and dividend income
 
