@@ -437,6 +437,12 @@ export interface HouseholdInputs {
    * receivable, capped at max top-up). If 0, TFC value is shown as maximum possible.
    */
   estimatedAnnualChildcareSpend: number;
+
+  /**
+   * Optional ISO date (YYYY-MM-DD) to evaluate child ages and eligibility at.
+   * Defaults to today. Used by tests for deterministic results.
+   */
+  asOfDate?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -248,7 +248,9 @@ export function computeCrossoverANI(
 export function calculate(inputs: HouseholdInputs): CalculationResult {
   const config = getTaxYearConfig(inputs.taxYear);
   const localRates = inputs.localHourlyRates ?? DEFAULT_LOCAL_HOURLY_RATES;
-  const referenceDate = new Date(); // Today — determines child age groups
+  const referenceDate = inputs.asOfDate
+    ? new Date(inputs.asOfDate + "T00:00:00Z")
+    : new Date(); // Today — determines child age groups
 
   const warnings: string[] = [];
 
