@@ -1,27 +1,21 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Public Sans', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: #f0f2f7;
-  color: #1e293b;
+  background: #F6F4EF;
+  color: #16202B;
 }
 
-/* Thin scrollbar for the sidebar */
+/* Thin scrollbars */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
 /* Input focus ring */
-input:focus { outline: 2px solid #3b82f6; outline-offset: 1px; border-color: transparent !important; }
+input:focus-visible, select:focus-visible { outline: 3px solid #E08A1E; outline-offset: 2px; }
 
 /* Smooth button transitions */
 button { transition: all 0.12s ease; }
 button:active { transform: scale(0.98); }
 
-/* Spinner for PDF download button */
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}

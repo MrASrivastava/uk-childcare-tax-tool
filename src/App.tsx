@@ -1,18 +1,13 @@
 /**
- * App.tsx — UK Childcare Tax Tool (Phase 4 complete)
+ * App.tsx — UK Childcare Tax Tool
  *
- * Tabs: Inputs · Eligibility · Optimise · Marginal rates
- *
- * New in Phase 4:
- *   - ANI waterfall breakdown (all income components + deductions)
- *   - Pension capacity panel (headroom, carry-forward, MPAA warnings)
- *   - At-risk alert banners (from atRiskThresholds on the result)
- *   - Crossover point annotation on the chart
- *   - Parent B chart toggle
- *   - Complete input form: EV salary sacrifice, P11D BiK, cash allowances
+ * Flow: landing page → guided setup (src/onboarding) → check your answers →
+ * results. The results keep three tabs: what you can claim (eligibility),
+ * ways to improve (optimise) and how each £1 is taxed (marginal-rate chart).
+ * "Edit all details" reuses the full forms in src/forms/DetailForms.tsx.
  */
 
-import { useState, useCallback, useMemo, useContext, createContext } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   ResponsiveContainer,
   Area,
@@ -31,23 +26,30 @@ import {
   rsuVestDateForTaxYear,
   getTaxYearConfig,
   taxYearForDate,
-  isConfiguredTaxYear,
   CONFIGURED_TAX_YEARS,
   LATEST_CONFIGURED_TAX_YEAR,
 } from "./engine-src/index";
-import { buildTooltips, type Tooltips } from "./tooltips";
+import { buildTooltips } from "./tooltips";
+import { ParentNamesContext, TooltipContext, defaultTaxYear, fmt, useParentNames, useTT } from "./ui/context";
+import { Tip } from "./ui/fields";
+import { Landing } from "./onboarding/Landing";
+import { SetupFlow } from "./onboarding/SetupFlow";
+import { EditAll, Review } from "./onboarding/Review";
+import { ResultsSummary } from "./onboarding/ResultsSummary";
+import { emptyHousehold, emptyMeta, stepOrder, syncMeta, toEngineInputs } from "./onboarding/model";
+import type { Mode, SetupMeta, StepId } from "./onboarding/model";
+import { clearSession, loadSession, saveSession } from "./onboarding/storage";
+import type { SavedSession } from "./onboarding/storage";
+import "./onboarding/onboarding.css";
 import { generateReport } from "./generatePDF";
 import type {
   HouseholdInputs,
   ParentIncome,
   CalculationResult,
-  ChildInfo,
   FreeHoursChildResult,
   OptimisationRecommendation,
   ANIBreakdown,
   PensionCapacity,
-  MinimumIncomeAgeBand,
-  PayFrequency,
   TaxYear,
 } from "./engine-src/index";
 
@@ -55,91 +57,17 @@ import type {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Tab = "inputs" | "eligibility" | "optimise" | "chart";
 type ChartParent = "A" | "B";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tooltip component + content dictionary
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Tip({ text, children }: { text: string; children?: React.ReactNode }) {
-  const [visible, setVisible] = useState(false);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const handleMouseMove = (e: React.MouseEvent<HTMLSpanElement>) => {
-    setPos({ x: e.clientX, y: e.clientY });
-  };
-  return (
-    <span
-      style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={() => setVisible(false)}
-      onMouseMove={handleMouseMove}
-    >
-      {children ?? (
-        <span style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          width: 14, height: 14, borderRadius: "50%",
-          background: "#e2e8f0", color: "#64748b",
-          fontSize: 9, fontWeight: 800, cursor: "help",
-          flexShrink: 0, marginLeft: 4, lineHeight: 1,
-          border: "1px solid #cbd5e1",
-        }}>?</span>
-      )}
-      {visible && (
-        <div style={{
-          position: "fixed",
-          left: Math.min(pos.x + 12, window.innerWidth - 280),
-          top: pos.y - 8,
-          transform: "translateY(-100%)",
-          zIndex: 9999,
-          background: "#1e293b",
-          color: "#f1f5f9",
-          borderRadius: 8,
-          padding: "10px 13px",
-          fontSize: 12,
-          lineHeight: 1.55,
-          maxWidth: 260,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-          pointerEvents: "none",
-          whiteSpace: "pre-line",
-        }}>
-          {text}
-          <div style={{
-            position: "absolute", bottom: -5, left: 16,
-            width: 10, height: 10,
-            background: "#1e293b",
-            transform: "rotate(45deg)",
-            borderRadius: 2,
-          }} />
-        </div>
-      )}
-    </span>
-  );
-}
-
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & formatters
 // ─────────────────────────────────────────────────────────────────────────────
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-    maximumFractionDigits: 0,
-  }).format(n);
 
-// Tooltips for the selected tax year, provided by App
-const TooltipContext = createContext<Tooltips>(buildTooltips(getTaxYearConfig(LATEST_CONFIGURED_TAX_YEAR)));
-const useTT = () => useContext(TooltipContext);
-
-/** Today's tax year if configured, otherwise the latest configured year. */
-function defaultTaxYear(): { year: TaxYear; outOfDate: boolean } {
-  const current = taxYearForDate(new Date());
-  return isConfiguredTaxYear(current)
-    ? { year: current, outOfDate: false }
-    : { year: LATEST_CONFIGURED_TAX_YEAR, outOfDate: true };
-}
 
 const STATUS_ICON: Record<string, string> = {
   eligible: "✓",
@@ -159,34 +87,36 @@ const LEVER_NAMES: Record<string, string> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Default inputs (pre-loaded with a realistic near-cliff scenario)
+// The example family ("See an example family"): near the £100k limit
 // ─────────────────────────────────────────────────────────────────────────────
 
-function defaultParentA(): ParentIncome {
+function exampleHousehold(taxYear: TaxYear): HouseholdInputs {
   return {
-    ...createEmptyParentIncome("Parent A"),
-    grossSalary: 95_000,
-    bonus: { expectedThisYear: 8_000, isDiscretionary: true, paymentMonth: 12 },
-    savingsInterestNonISA: 2_000,
+    taxYear,
+    parentA: {
+      ...createEmptyParentIncome("Alex"),
+      grossSalary: 95_000,
+      bonus: { expectedThisYear: 8_000, isDiscretionary: true, paymentMonth: 12 },
+      savingsInterestNonISA: 2_000,
+    },
+    parentB: { ...createEmptyParentIncome("Sam"), grossSalary: 38_000 },
+    children: [{ dateOfBirth: "2024-01-15", isDisabled: false, childcareBill: { annual: 15_000 } }],
+    childBenefitRegistered: true,
+    childBenefitPaymentsElected: true,
+    jurisdiction: "england",
+    estimatedAnnualChildcareSpend: 0,
   };
 }
 
-function defaultParentB(): ParentIncome {
-  return {
-    ...createEmptyParentIncome("Partner B"),
-    grossSalary: 38_000,
-  };
-}
-
-const DEFAULT_INPUTS: HouseholdInputs = {
-  taxYear: defaultTaxYear().year,
-  parentA: defaultParentA(),
-  parentB: defaultParentB(),
-  children: [{ dateOfBirth: "2024-01-15", isDisabled: false }],
-  childBenefitRegistered: true,
-  childBenefitPaymentsElected: true,
-  jurisdiction: "england",
-  estimatedAnnualChildcareSpend: 15_000,
+const EXAMPLE_META: SetupMeta = {
+  ...emptyMeta(),
+  couple: true,
+  A: { salaryEntered: true, period: "year", pension: "none", chips: ["sav"] },
+  B: { salaryEntered: true, period: "year", pension: "none", chips: [] },
+  rateKnown: false,
+  exclusionsAnswer: false,
+  cbRegistered: true,
+  cbReceiving: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -275,930 +205,17 @@ function MetricGrid({
 // Form primitives
 // ─────────────────────────────────────────────────────────────────────────────
 
-function NumField({
-  label,
-  value,
-  onChange,
-  hint,
-  step = 1000,
-  tooltip,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  hint?: string;
-  step?: number;
-  tooltip?: string;
-}) {
-  return (
-    <div style={{ marginBottom: 11 }}>
-      <label style={{
-        display: "block",
-        fontSize: 11,
-        color: "#64748b",
-        marginBottom: 3,
-        fontWeight: 600,
-        textTransform: "uppercase" as const,
-        letterSpacing: "0.04em",
-      }}>
-        {label}{tooltip && <Tip text={tooltip} />}
-      </label>
-      <div style={{ display: "flex" }}>
-        <span
-          style={{
-            background: "#f3f4f6",
-            border: "1px solid #d1d5db",
-            borderRight: "none",
-            padding: "4px 7px",
-            borderRadius: "5px 0 0 5px",
-            fontSize: 12,
-            color: "#9ca3af",
-          }}
-        >
-          £
-        </span>
-        <input
-          type="number"
-          value={value}
-          step={step}
-          min={0}
-          onChange={(e) => onChange(Number(e.target.value))}
-          style={{
-            flex: 1,
-            padding: "4px 7px",
-            border: "1px solid #d1d5db",
-            borderRadius: "0 5px 5px 0",
-            fontSize: 12,
-            outline: "none",
-            minWidth: 0,
-          }}
-        />
-      </div>
-      {hint && (
-        <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>{hint}</div>
-      )}
-    </div>
-  );
-}
-
-function Toggle({
-  label,
-  value,
-  onChange,
-  tooltip,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-  tooltip?: string;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        marginBottom: 9,
-        cursor: "pointer",
-      }}
-      onClick={() => onChange(!value)}
-    >
-      <div
-        style={{
-          width: 32,
-          height: 18,
-          borderRadius: 9,
-          background: value ? "#4f46e5" : "#d1d5db",
-          position: "relative",
-          transition: "background 0.18s",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            position: "absolute",
-            top: 2,
-            left: value ? 14 : 2,
-            width: 14,
-            height: 14,
-            borderRadius: 7,
-            background: "#fff",
-            transition: "left 0.18s",
-          }}
-        />
-      </div>
-      <span style={{ fontSize: 12, color: "#374151", userSelect: "none" }}>{label}{tooltip && <Tip text={tooltip} />}</span>
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Parent income form — complete with EV sacrifice and P11D fields
 // ─────────────────────────────────────────────────────────────────────────────
-
-function ParentForm({
-  parent,
-  onChange,
-  label,
-  taxYear,
-}: {
-  parent: ParentIncome;
-  onChange: (p: ParentIncome) => void;
-  label: string;
-  taxYear: TaxYear;
-}) {
-  const TT = useTT();
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const set = useCallback(
-    (patch: Partial<ParentIncome>) => onChange({ ...parent, ...patch }),
-    [parent, onChange]
-  );
-
-  return (
-    <div
-      style={{
-        background: "#f9fafb",
-        border: "1px solid #e5e7eb",
-        borderRadius: 10,
-        padding: 14,
-        marginBottom: 12,
-      }}
-    >
-      <div
-        style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#1f2937" }}
-      >
-        {label}
-      </div>
-
-      {/* Core employment income */}
-      <NumField
-        label="Gross salary (before sacrifice)"
-        value={parent.grossSalary}
-        onChange={(v) => set({ grossSalary: v })}
-        hint="Annual gross, before any salary sacrifice"
-        tooltip={TT.grossSalary}
-      />
-      <NumField
-        label="Expected bonus this tax year"
-        value={parent.bonus.expectedThisYear}
-        onChange={(v) => set({ bonus: { ...parent.bonus, expectedThisYear: v } })}
-        tooltip={TT.bonus}
-      />
-      {parent.bonus.expectedThisYear > 0 && (
-        <SelectField
-          label="Bonus paid in"
-          tooltip={TT.bonusMonth}
-          value={String(parent.bonus.paymentMonth ?? "")}
-          onChange={(v) => set({ bonus: { ...parent.bonus, paymentMonth: v ? Number(v) : null } })}
-          options={[["", "Not sure (spread over the year)"], ...BONUS_MONTHS]}
-        />
-      )}
-      <NumField
-        label="RSU vesting value this tax year"
-        step={5000}
-        tooltip={TT.rsuVests}
-        value={parent.rsuVests.reduce((s, r) => s + r.grossValue, 0)}
-        onChange={(v) =>
-          set({
-            rsuVests:
-              v > 0
-                ? [{ vestDate: rsuVestDateForTaxYear(taxYear), grossValue: v, employerNICTransferred: false }]
-                : [],
-          })
-        }
-        hint="Market value of shares at vest date"
-      />
-
-      {/* ANI deductions */}
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: "#6b7280",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-          marginBottom: 6,
-          marginTop: 4,
-        }}
-      >
-        ANI deductions
-      </div>
-      <NumField
-        label="Salary sacrifice pension (annual gross)"
-        value={parent.salarySacrifice.pension}
-        tooltip={TT.salarySacrifice}
-        onChange={(v) =>
-          set({ salarySacrifice: { ...parent.salarySacrifice, pension: v } })
-        }
-        hint="Reduces ANI at Step 1 + saves NIC"
-      />
-      <NumField
-        label="Personal pension / SIPP (net paid)"
-        value={parent.personalPensionContributions.reliefAtSourceNet}
-        tooltip={TT.personalPension}
-        onChange={(v) =>
-          set({
-            personalPensionContributions: {
-              ...parent.personalPensionContributions,
-              reliefAtSourceNet: v,
-            },
-          })
-        }
-        hint="Grossed up ÷ 0.8 → ANI deduction at Step 3"
-      />
-      <NumField
-        label="Net pay workplace pension (annual)"
-        value={parent.personalPensionContributions.netPayArrangementGross}
-        tooltip={TT.netPayPension}
-        onChange={(v) =>
-          set({
-            personalPensionContributions: {
-              ...parent.personalPensionContributions,
-              netPayArrangementGross: v,
-            },
-          })
-        }
-        hint="Deducted before tax, not salary sacrifice (e.g. NHS)"
-      />
-      <NumField
-        label="Gift Aid donations (net)"
-        step={100}
-        tooltip={TT.giftAid}
-        value={parent.giftAidDonationsNet}
-        onChange={(v) => set({ giftAidDonationsNet: v })}
-        hint="÷ 0.8 → ANI deduction at Step 2"
-      />
-
-      {/* Investment/other income */}
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: "#6b7280",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-          marginBottom: 6,
-          marginTop: 4,
-        }}
-      >
-        Other income (adds to ANI)
-      </div>
-      <NumField
-        label="Non-ISA savings interest"
-        step={500}
-        value={parent.savingsInterestNonISA}
-        tooltip={TT.savingsInterest}
-        onChange={(v) => set({ savingsInterestNonISA: v })}
-        hint="PSA reduces tax but NOT ANI — full amount counts"
-      />
-      <NumField
-        label="Non-ISA dividends"
-        step={500}
-        value={parent.dividendsNonISA}
-        tooltip={TT.dividends}
-        onChange={(v) => set({ dividendsNonISA: v })}
-        hint="Dividend allowance reduces tax but NOT ANI"
-      />
-      <NumField
-        label="Rental profit (before mortgage interest)"
-        step={500}
-        value={parent.rentalIncomeNet}
-        tooltip={TT.rentalIncome}
-        onChange={(v) => set({ rentalIncomeNet: v })}
-        hint="Rent minus allowable expenses, before finance costs"
-      />
-      {parent.rentalIncomeNet > 0 && (
-        <NumField
-          label="Rental mortgage interest / finance costs"
-          step={500}
-          value={parent.rentalFinanceCosts ?? 0}
-          tooltip={TT.rentalFinanceCosts}
-          onChange={(v) => set({ rentalFinanceCosts: v })}
-          hint="Not deducted from ANI — 20% tax reduction"
-        />
-      )}
-
-      {/* Advanced: EV sacrifice, P11D, cash allowances */}
-      <button
-        onClick={() => setShowAdvanced((x) => !x)}
-        style={{
-          fontSize: 12,
-          color: "#4f46e5",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: "4px 0",
-          marginBottom: showAdvanced ? 8 : 0,
-        }}
-      >
-        {showAdvanced ? "▲ Hide" : "▼ Show"} EV sacrifice, P11D &amp; other
-      </button>
-
-      {showAdvanced && (
-        <>
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#6b7280",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              marginBottom: 6,
-            }}
-          >
-            EV salary sacrifice
-          </div>
-          <NumField
-            label="Annual EV lease cost sacrificed"
-            step={500}
-            tooltip={TT.evLease}
-            value={parent.salarySacrifice.ev?.annualLeaseCost ?? 0}
-            onChange={(v) =>
-              set({
-                salarySacrifice: {
-                  ...parent.salarySacrifice,
-                  ev:
-                    v > 0
-                      ? {
-                          annualLeaseCost: v,
-                          vehicleP11DValue:
-                            parent.salarySacrifice.ev?.vehicleP11DValue ?? 35_000,
-                        }
-                      : null,
-                },
-              })
-            }
-            hint="Reduces gross salary → reduces ANI + saves NIC"
-          />
-          {(parent.salarySacrifice.ev?.annualLeaseCost ?? 0) > 0 && (
-            <NumField
-              label="EV vehicle P11D value"
-              step={1000}
-              tooltip={TT.evP11D}
-              value={parent.salarySacrifice.ev?.vehicleP11DValue ?? 35_000}
-              onChange={(v) =>
-                set({
-                  salarySacrifice: {
-                    ...parent.salarySacrifice,
-                    ev: {
-                      annualLeaseCost:
-                        parent.salarySacrifice.ev?.annualLeaseCost ?? 0,
-                      vehicleP11DValue: v,
-                    },
-                  },
-                })
-              }
-              hint={`List price — BiK = P11D × ${+(getTaxYearConfig(taxYear).evBiKRate * 100).toFixed(2)}% (${taxYear}) adds back to ANI`}
-            />
-          )}
-          <NumField
-            label="Cycle-to-work sacrifice (annual)"
-            step={100}
-            tooltip={TT.cycleToWork}
-            value={parent.salarySacrifice.cycleToWork}
-            onChange={(v) =>
-              set({ salarySacrifice: { ...parent.salarySacrifice, cycleToWork: v } })
-            }
-          />
-
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#6b7280",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              marginBottom: 6,
-              marginTop: 4,
-            }}
-          >
-            Benefits in kind (P11D)
-          </div>
-          <NumField
-            label="Company car P11D value"
-            step={1000}
-            tooltip={TT.companyCarP11D}
-            value={parent.benefitsInKind.companyCarP11DValue}
-            onChange={(v) =>
-              set({
-                benefitsInKind: { ...parent.benefitsInKind, companyCarP11DValue: v },
-              })
-            }
-            hint="Use 0 if EV via salary sacrifice (entered above)"
-          />
-          {parent.benefitsInKind.companyCarP11DValue > 0 && (
-            <div style={{ marginBottom: 11 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b", marginBottom: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Car BiK rate (%) <Tip text={TT.carBiK} />
-              </label>
-              <input
-                type="number"
-                value={Math.round(parent.benefitsInKind.companyCarBiKRate * 100)}
-                step={1}
-                min={0}
-                max={37}
-                onChange={(e) =>
-                  set({
-                    benefitsInKind: {
-                      ...parent.benefitsInKind,
-                      companyCarBiKRate: Number(e.target.value) / 100,
-                    },
-                  })
-                }
-                style={{ width: "100%", padding: "4px 7px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 12 }}
-              />
-              <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>EV = {+(getTaxYearConfig(taxYear).evBiKRate * 100).toFixed(2)}% ({taxYear}) · Petrol/diesel = 17–37%</div>
-            </div>
-          )}
-          <NumField
-            label="Private medical insurance (annual premium)"
-            step={500}
-            tooltip={TT.pmi}
-            value={parent.benefitsInKind.privateMedicalInsurancePremium}
-            onChange={(v) =>
-              set({
-                benefitsInKind: {
-                  ...parent.benefitsInKind,
-                  privateMedicalInsurancePremium: v,
-                },
-              })
-            }
-            hint="Employer's premium cost — adds to ANI in full"
-          />
-          <NumField
-            label="Cash allowances (car/phone/etc.)"
-            step={500}
-            tooltip={TT.cashAllowances}
-            value={parent.cashAllowances}
-            onChange={(v) => set({ cashAllowances: v })}
-            hint="Fully taxable for income tax AND NIC"
-          />
-          <NumField
-            label="Self-employment profit (net)"
-            step={500}
-            tooltip={TT.selfEmployment}
-            value={parent.selfEmploymentProfit}
-            onChange={(v) => set({ selfEmploymentProfit: v })}
-          />
-          <NumField
-            label="Pension income / drawdown"
-            step={500}
-            tooltip={TT.pensionIncome}
-            value={parent.pensionIncomeGross}
-            onChange={(v) => set({ pensionIncomeGross: v })}
-          />
-
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#6b7280",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              marginBottom: 6,
-              marginTop: 4,
-            }}
-          >
-            Payroll
-          </div>
-          <SelectField
-            label="Paid"
-            tooltip={TT.payFrequency}
-            value={parent.payFrequency ?? "monthly"}
-            onChange={(v) => set({ payFrequency: v as PayFrequency })}
-            options={[["monthly", "Monthly"], ["four_weekly", "Every 4 weeks"], ["fortnightly", "Fortnightly"], ["weekly", "Weekly"]]}
-          />
-          <Toggle
-            label="Company director"
-            value={parent.isDirector ?? false}
-            tooltip={TT.director}
-            onChange={(v) => set({ isDirector: v })}
-          />
-          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: -4, marginBottom: 10 }}>
-            NIC estimated per pay period; payroll may differ by a few pounds.
-          </div>
-
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#6b7280",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              marginBottom: 6,
-              marginTop: 4,
-            }}
-          >
-            Childcare minimum income test
-          </div>
-          <NumField
-            label="Expected earnings, next 3 months"
-            step={500}
-            tooltip={TT.expectedEarnings}
-            value={parent.expectedEarningsNext3Months ?? 0}
-            onChange={(v) => set({ expectedEarningsNext3Months: v > 0 ? v : undefined })}
-            hint="0 = a quarter of annual pay, bonus and self-employment profit"
-          />
-          <div style={{ marginBottom: 11 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b", marginBottom: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Age band <Tip text={TT.ageBand} />
-            </label>
-            <select
-              value={parent.ageBand ?? "21_plus"}
-              onChange={(e) => set({ ageBand: e.target.value as MinimumIncomeAgeBand })}
-              style={{ width: "100%", padding: "4px 7px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 12 }}
-            >
-              <option value="21_plus">21 or over</option>
-              <option value="18_to_20">18 to 20</option>
-              <option value="under_18_or_apprentice">Under 18 or apprentice</option>
-            </select>
-          </div>
-          <Toggle
-            label="Self-employed"
-            value={parent.selfEmployed ?? false}
-            tooltip={TT.selfEmployed}
-            onChange={(v) => set({ selfEmployed: v })}
-          />
-
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#6b7280",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              marginBottom: 6,
-              marginTop: 4,
-            }}
-          >
-            Pension status
-          </div>
-          <NumField
-            label="Employer pension contributions"
-            step={500}
-            tooltip={TT.employerPension}
-            value={parent.employerPensionContributions ?? 0}
-            onChange={(v) => set({ employerPensionContributions: v })}
-            hint="Not including your salary sacrifice (entered above)"
-          />
-          <NumField
-            label="Defined benefit pension input amount"
-            step={1000}
-            tooltip={TT.dbPensionInput}
-            value={parent.dbPensionInputAmount ?? 0}
-            onChange={(v) => set({ dbPensionInputAmount: v > 0 ? v : null })}
-            hint="From your scheme's pension savings statement; 0 if none"
-          />
-          <Toggle
-            label="MPAA triggered (flexibly accessed pension)"
-            value={parent.mpaaTriggered}
-            tooltip={TT.mpaa}
-            onChange={(v) => set({ mpaaTriggered: v })}
-          />
-        </>
-      )}
-
-      <div style={{ marginTop: 4 }}>
-        <Toggle
-          label="On statutory leave (maternity/paternity)"
-          value={parent.onStatutoryLeave}
-          tooltip={TT.statutoryLeave}
-          onChange={(v) => set({ onStatutoryLeave: v })}
-        />
-        {parent.selfEmploymentProfit > 0 && (
-          <Toggle
-            label="Over State Pension age (no Class 4 NIC)"
-            value={parent.statePensionAgeReached ?? false}
-            tooltip={TT.statePensionAge}
-            onChange={(v) => set({ statePensionAgeReached: v })}
-          />
-        )}
-        <Toggle
-          label="Scotland resident"
-          value={parent.scotlandResident}
-          tooltip={TT.scotlandResident}
-          onChange={(v) => set({ scotlandResident: v })}
-        />
-      </div>
-    </div>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-  tooltip,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: [string, string][];
-  tooltip?: string;
-}) {
-  return (
-    <div style={{ marginBottom: 11 }}>
-      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b", marginBottom: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-        {label} {tooltip && <Tip text={tooltip} />}
-      </label>
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ width: "100%", padding: "4px 7px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 12 }}
-      >
-        {options.map(([v, text]) => <option key={v} value={v}>{text}</option>)}
-      </select>
-    </div>
-  );
-}
-
-/** A child's own childcare bill (optional) and whether they live with the parents. */
-function ChildBillFields({ child, onChange }: { child: ChildInfo; onChange: (c: ChildInfo) => void }) {
-  const TT = useTT();
-  const bill = child.childcareBill;
-  const quarterly = bill && "quarterly" in bill ? bill.quarterly : null;
-  const annual = bill ? ("annual" in bill ? bill.annual : bill.quarterly.reduce((a, b) => a + b, 0)) : 0;
-  const QUARTERS = ["Apr–Jul", "Jul–Oct", "Oct–Jan", "Jan–Apr"];
-  return (
-    <div style={{ marginBottom: 6 }}>
-      <NumField
-        label="This child's fees (before free hours)"
-        step={500}
-        tooltip={TT.childBill}
-        value={annual}
-        onChange={(v) => onChange({ ...child, childcareBill: v > 0 ? { annual: v } : undefined })}
-        hint="0 = share of the household figure below"
-      />
-      {annual > 0 && (
-        <Toggle
-          label="Uneven through the year"
-          value={quarterly !== null}
-          onChange={(on) =>
-            onChange({
-              ...child,
-              childcareBill: on ? { quarterly: [annual / 4, annual / 4, annual / 4, annual / 4] } : { annual },
-            })
-          }
-        />
-      )}
-      {quarterly && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-          {quarterly.map((q, n) => (
-            <NumField
-              key={n}
-              label={QUARTERS[n]}
-              step={250}
-              value={q}
-              onChange={(v) => {
-                const next = [...quarterly] as [number, number, number, number];
-                next[n] = v;
-                onChange({ ...child, childcareBill: { quarterly: next } });
-              }}
-            />
-          ))}
-        </div>
-      )}
-      <Toggle
-        label="Usually lives with you"
-        value={child.usuallyLivesWithYou ?? true}
-        tooltip={TT.livesWithYou}
-        onChange={(v) => onChange({ ...child, usuallyLivesWithYou: v })}
-      />
-    </div>
-  );
-}
-
-/** Tax months for the bonus payment selector: 1 = 6 April–5 May. */
-const BONUS_MONTHS: [string, string][] = [
-  "April", "May", "June", "July", "August", "September",
-  "October", "November", "December", "January", "February", "March",
-].map((m, i) => [String(i + 1), `${m} payroll`]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Children form
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ChildrenForm({
-  children,
-  onChange,
-}: {
-  children: ChildInfo[];
-  onChange: (c: ChildInfo[]) => void;
-}) {
-  const TT = useTT();
-  return (
-    <div
-      style={{
-        background: "#f9fafb",
-        border: "1px solid #e5e7eb",
-        borderRadius: 10,
-        padding: 14,
-        marginBottom: 12,
-      }}
-    >
-      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#1f2937" }}>
-        Children
-      </div>
-      {children.map((child, i) => (
-        <div key={i}>
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 8 }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 2 }}>
-              Child {i + 1} — date of birth
-            </label>
-            <input
-              type="date"
-              value={child.dateOfBirth}
-              onChange={(e) => {
-                const n = [...children];
-                n[i] = { ...child, dateOfBirth: e.target.value };
-                onChange(n);
-              }}
-              style={{
-                width: "100%",
-                padding: "4px 7px",
-                border: "1px solid #d1d5db",
-                borderRadius: 5,
-                fontSize: 12,
-              }}
-            />
-          </div>
-          <Toggle
-            label="Disabled"
-            value={child.isDisabled}
-            tooltip={TT.childDisabled}
-            onChange={(v) => {
-              const n = [...children];
-              n[i] = { ...child, isDisabled: v };
-              onChange(n);
-            }}
-          />
-          <Toggle
-            label="Reception deferred"
-            value={child.deferredReception ?? false}
-            tooltip={TT.deferredReception}
-            onChange={(v) => {
-              const n = [...children];
-              n[i] = { ...child, deferredReception: v };
-              onChange(n);
-            }}
-          />
-          <button
-            onClick={() => onChange(children.filter((_, j) => j !== i))}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#dc2626",
-              cursor: "pointer",
-              fontSize: 16,
-              paddingBottom: 8,
-            }}
-          >
-            ✕
-          </button>
-        </div>
-        <ChildBillFields child={child} onChange={(c) => {
-          const n = [...children];
-          n[i] = c;
-          onChange(n);
-        }} />
-        <div style={{ marginTop: -2, marginBottom: 10 }}>
-          <SelectField
-            label="Extra support at age 2"
-            tooltip={TT.twoYearOldExtraSupport}
-            value={child.twoYearOldExtraSupport ?? ""}
-            onChange={(v) => {
-              const n = [...children];
-              n[i] = { ...child, twoYearOldExtraSupport: (v || null) as ChildInfo["twoYearOldExtraSupport"] };
-              onChange(n);
-            }}
-            options={[
-              ["", "None"],
-              ["dla", "Gets Disability Living Allowance"],
-              ["ehc_plan", "Has an EHC plan"],
-              ["looked_after_or_left_care", "Looked after, or left care"],
-              ["benefits_route", "Family gets qualifying benefits"],
-            ]}
-          />
-          {child.isDisabled && !child.twoYearOldExtraSupport && (
-            <div style={{ fontSize: 11, color: "#b45309", marginTop: -6 }}>
-              Does your child get DLA or have an EHC plan? They may qualify for 15 funded hours at age 2 regardless of income.
-            </div>
-          )}
-        </div>
-        </div>
-      ))}
-      <button
-        onClick={() =>
-          onChange([...children, { dateOfBirth: "2024-06-01", isDisabled: false }])
-        }
-        style={{
-          fontSize: 12,
-          color: "#4f46e5",
-          background: "none",
-          border: "1px solid #c7d2fe",
-          borderRadius: 5,
-          padding: "3px 10px",
-          cursor: "pointer",
-        }}
-      >
-        + Add child
-      </button>
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Household settings fields (shared by the inputs tab and the sidebar)
 // ─────────────────────────────────────────────────────────────────────────────
-
-function HouseholdSettingsFields({
-  inputs,
-  onHousehold,
-}: {
-  inputs: HouseholdInputs;
-  onHousehold: (patch: Partial<HouseholdInputs>) => void;
-}) {
-  const TT = useTT();
-  const nurseryRate = inputs.providerHourlyRates?.age3to4 ?? 0;
-  return (
-    <>
-      <div style={{ marginBottom: 11 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b", marginBottom: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          Assessment date (optional) <Tip text={TT.assessmentDate} />
-        </label>
-        <input
-          type="date"
-          value={inputs.asOfDate ?? ""}
-          onChange={(e) => onHousehold({ asOfDate: e.target.value || undefined })}
-          style={{ width: "100%", padding: "4px 7px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 12 }}
-        />
-      </div>
-      <NumField
-        label="Annual childcare fees (before funded hours)"
-        step={1000}
-        value={inputs.estimatedAnnualChildcareSpend}
-        tooltip={TT.childcareSpend}
-        onChange={(v) => onHousehold({ estimatedAnnualChildcareSpend: v })}
-        hint="Funded hours are subtracted; TFC adds 20% of what you pay"
-      />
-      <NumField
-        label="Nursery hourly rate"
-        step={0.5}
-        value={nurseryRate}
-        tooltip={TT.nurseryRate}
-        onChange={(v) =>
-          onHousehold({
-            providerHourlyRates: v > 0 ? { under2: v, age2: v, age3to4: v } : undefined,
-          })
-        }
-        hint="0 = national average funding rate (usually understates)"
-      />
-      <Toggle
-        label="Child Benefit registered"
-        value={inputs.childBenefitRegistered}
-        onChange={(v) => onHousehold({ childBenefitRegistered: v })}
-        tooltip={TT.childBenefitRegistered}
-      />
-      <Toggle
-        label="Receiving Child Benefit payments"
-        value={inputs.childBenefitPaymentsElected}
-        onChange={(v) => onHousehold({ childBenefitPaymentsElected: v })}
-        tooltip={TT.cbPayments}
-      />
-      <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", margin: "8px 0 6px" }}>
-        Tax-Free Childcare exclusions
-      </div>
-      {([
-        ["receivesUniversalCredit", "Getting Universal Credit", TT.tfcUC, false],
-        ["eitherParentReceivesChildcareVouchers", "Either parent gets childcare vouchers", TT.tfcVouchers, false],
-        ["receivesChildcareBursaryOrGrant", "Getting a childcare bursary or grant", TT.tfcBursary, false],
-        ["residenceConditionsConfirmed", "UK residence conditions met", TT.tfcResidence, true],
-      ] as const).map(([key, label, tip, fallback]) => (
-        <Toggle
-          key={key}
-          label={label}
-          tooltip={tip}
-          value={inputs.tfcExclusions?.[key] ?? fallback}
-          onChange={(v) =>
-            onHousehold({
-              tfcExclusions: {
-                receivesUniversalCredit: false,
-                eitherParentReceivesChildcareVouchers: false,
-                receivesChildcareBursaryOrGrant: false,
-                residenceConditionsConfirmed: true,
-                ...inputs.tfcExclusions,
-                [key]: v,
-              },
-            })
-          }
-        />
-      ))}
-    </>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // At-risk alert banner
@@ -1599,6 +616,7 @@ function SchemeCard({
 
 function EligibilityPanel({ result }: { result: CalculationResult }) {
   const TT = useTT();
+  const names = useParentNames();
   const { parentA, parentB, tfc, hicbc, freeHours, householdSummary } = result;
 
   const freeHoursStatus = freeHours.children.some(
@@ -1626,8 +644,8 @@ function EligibilityPanel({ result }: { result: CalculationResult }) {
         <div style={S.sectionTitle as React.CSSProperties}><span style={{ margin: 0 }}>Adjusted Net Income</span></div>
         <Tip text={TT.ani} />
       </div>
-      <ANIWaterfall ani={parentA.ani} label="Parent A" />
-      {parentB && <ANIWaterfall ani={parentB.ani} label="Partner B" />}
+      <ANIWaterfall ani={parentA.ani} label={names.A} />
+      {parentB && <ANIWaterfall ani={parentB.ani} label={names.B} />}
 
       <SectionTitle>Scheme Eligibility</SectionTitle>
 
@@ -1718,9 +736,9 @@ function EligibilityPanel({ result }: { result: CalculationResult }) {
       </div>
       <MetricGrid
         items={[
-          { label: "Parent A take-home", value: fmt(householdSummary.parentANetTakeHome) },
+          { label: `${names.A} take-home`, value: fmt(householdSummary.parentANetTakeHome) },
           ...(parentB
-            ? [{ label: "Partner B take-home", value: fmt(householdSummary.parentBNetTakeHome) }]
+            ? [{ label: `${names.B} take-home`, value: fmt(householdSummary.parentBNetTakeHome) }]
             : []),
           { label: "Net Child Benefit", value: fmt(householdSummary.netChildBenefit) },
           { label: "TFC top-up", value: fmt(householdSummary.tfcTopUp) },
@@ -1734,8 +752,8 @@ function EligibilityPanel({ result }: { result: CalculationResult }) {
         </div>
         <div style={{ marginTop: 10, display: "flex", gap: 16, flexWrap: "wrap" }}>
           {[
-            { l: "Parent A take-home", v: householdSummary.parentANetTakeHome },
-            householdSummary.parentBNetTakeHome > 0 ? { l: "Partner B take-home", v: householdSummary.parentBNetTakeHome } : null,
+            { l: `${names.A} take-home`, v: householdSummary.parentANetTakeHome },
+            householdSummary.parentBNetTakeHome > 0 ? { l: `${names.B} take-home`, v: householdSummary.parentBNetTakeHome } : null,
             { l: "Child Benefit (net)", v: householdSummary.netChildBenefit },
             { l: "TFC top-up", v: householdSummary.tfcTopUp },
             { l: "Free hours value", v: householdSummary.freeHoursAnnualValue },
@@ -1953,6 +971,7 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 
 function ChartPanel({ result }: { result: CalculationResult }) {
   const TT = useTT();
+  const names = useParentNames();
   const [activeParent, setActiveParent] = useState<ChartParent>("A");
   const [showComponents, setShowComponents] = useState(false);
 
@@ -1994,7 +1013,7 @@ function ChartPanel({ result }: { result: CalculationResult }) {
   const yMax = 90;
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div style={{ fontFamily: "'Public Sans', system-ui, sans-serif" }}>
 
       {/* ── Parent toggle ───────────────────────────────────────────── */}
       {result.parentB && (
@@ -2015,7 +1034,7 @@ function ChartPanel({ result }: { result: CalculationResult }) {
                 transition: "all 0.15s",
               }}
             >
-              {p === "A" ? "Parent A" : "Partner B"}
+              {p === "A" ? names.A : names.B}
             </button>
           ))}
         </div>
@@ -2320,53 +1339,6 @@ function ChartPanel({ result }: { result: CalculationResult }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Inputs panel
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-function InputsPanel({
-  inputs,
-  hasB,
-  onParentA,
-  onParentB,
-  onChildren,
-  onHasB,
-  onHousehold,
-}: {
-  inputs: HouseholdInputs;
-  hasB: boolean;
-  onParentA: (p: ParentIncome) => void;
-  onParentB: (p: ParentIncome) => void;
-  onChildren: (c: ChildInfo[]) => void;
-  onHasB: (v: boolean) => void;
-  onHousehold: (patch: Partial<HouseholdInputs>) => void;
-}) {
-  return (
-    <>
-      <ParentForm parent={inputs.parentA} onChange={onParentA} label="Parent A" taxYear={inputs.taxYear} />
-      <Toggle label="Has a partner / second parent" value={hasB} onChange={onHasB} />
-      {hasB && inputs.parentB && (
-        <ParentForm parent={inputs.parentB} onChange={onParentB} label="Partner B" taxYear={inputs.taxYear} />
-      )}
-      <ChildrenForm children={inputs.children} onChange={onChildren} />
-      <div
-        style={{
-          background: "#f9fafb",
-          border: "1px solid #e5e7eb",
-          borderRadius: 10,
-          padding: 14,
-        }}
-      >
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#1f2937" }}>
-          Household settings
-        </div>
-        <HouseholdSettingsFields inputs={inputs} onHousehold={onHousehold} />
-      </div>
-    </>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Download PDF button
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2375,7 +1347,7 @@ function DownloadButton({ result }: { result: CalculationResult }) {
 
   const handleClick = async () => {
     setLoading(true);
-    // Yield to browser to show loading state, then generate
+    // Yield to the browser to show the loading state, then generate
     await new Promise(r => setTimeout(r, 50));
     try {
       generateReport(result);
@@ -2385,62 +1357,57 @@ function DownloadButton({ result }: { result: CalculationResult }) {
   };
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={loading}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 7,
-        padding: "8px 16px",
-        background: loading ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.12)",
-        border: "1.5px solid rgba(255,255,255,0.25)",
-        borderRadius: 8,
-        color: "#fff",
-        fontSize: 13,
-        fontWeight: 700,
-        cursor: loading ? "wait" : "pointer",
-        transition: "all 0.15s",
-        whiteSpace: "nowrap",
-        backdropFilter: "blur(4px)",
-      }}
-      onMouseEnter={e => {
-        if (!loading) (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.2)";
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLButtonElement).style.background = loading ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.12)";
-      }}
-      title="Download a formatted PDF report of your full assessment"
-    >
-      {loading ? (
-        <>
-          <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
-          Generating…
-        </>
-      ) : (
-        <>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          Download PDF
-        </>
-      )}
+    <button type="button" className="ob-btn" onClick={handleClick} disabled={loading} aria-busy={loading}
+      style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: loading ? "wait" : "pointer" }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      {loading ? "Preparing PDF…" : "Download PDF"}
     </button>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// App shell
+// App shell: landing → guided setup → review → results
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function App() {
-  const [inputs, setInputs] = useState<HouseholdInputs>(DEFAULT_INPUTS);
-  const [outOfDate] = useState(() => defaultTaxYear().outOfDate);
-  const tooltips = useMemo(() => buildTooltips(getTaxYearConfig(inputs.taxYear)), [inputs.taxYear]);
+type ResultTab = "eligibility" | "optimise" | "chart";
 
-  // Changing the tax year re-dates the RSU vests the form created, which are
+const RESULT_TABS: { id: ResultTab; label: string }[] = [
+  { id: "eligibility", label: "What you can claim" },
+  { id: "optimise", label: "Ways to improve" },
+  { id: "chart", label: "How each £1 is taxed" },
+];
+
+function Logo() {
+  return (
+    <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+      <rect x="1" y="1" width="28" height="28" rx="8" fill="#1D4E89" />
+      <path d="M9 19c2-5 4-8 6-8s4 3 6 8" stroke="#FBFAF7" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+      <circle cx="15" cy="9" r="2" fill="#F2A541" />
+    </svg>
+  );
+}
+
+export default function App() {
+  const [today] = useState(() => new Date());
+  const [outOfDate] = useState(() => defaultTaxYear().outOfDate);
+  const [inputs, setInputs] = useState<HouseholdInputs>(() => emptyHousehold(defaultTaxYear().year));
+  const [meta, setMeta] = useState<SetupMeta>(emptyMeta);
+  const [mode, setMode] = useState<Mode>("landing");
+  const [step, setStep] = useState<StepId>("family");
+  const [fromReview, setFromReview] = useState(false);
+  const [example, setExample] = useState(false);
+  const [saved, setSaved] = useState<SavedSession | null>(() => loadSession());
+  const [tab, setTab] = useState<ResultTab>("eligibility");
+  const tooltips = useMemo(() => buildTooltips(getTaxYearConfig(inputs.taxYear)), [inputs.taxYear]);
+  const nameA = inputs.parentA.label;
+  const nameB = inputs.parentB?.label ?? "Parent B";
+  const names = useMemo(() => ({ A: nameA, B: nameB }), [nameA, nameB]);
+
+  // Changing the tax year re-dates the RSU vests the forms created, which are
   // dated inside the selected year (see rsuVestDateForTaxYear).
   const setTaxYear = useCallback((year: TaxYear) => {
     setInputs((i) => {
@@ -2455,257 +1422,181 @@ export default function App() {
       return { ...i, taxYear: year, parentA: redate(i.parentA)!, parentB: redate(i.parentB) };
     });
   }, []);
-  const [hasB, setHasB] = useState(true);
-  const [tab, setTab] = useState<Tab>("eligibility");
 
-  const setA = useCallback((p: ParentIncome) => setInputs((i) => ({ ...i, parentA: p })), []);
-  const setB = useCallback((p: ParentIncome) => setInputs((i) => ({ ...i, parentB: p })), []);
-  const setKids = useCallback((c: ChildInfo[]) => setInputs((i) => ({ ...i, children: c })), []);
-  const patchHH = useCallback(
-    (patch: Partial<HouseholdInputs>) => setInputs((i) => ({ ...i, ...patch })),
-    []
-  );
-  const handleHasB = useCallback(
-    (v: boolean) => {
-      setHasB(v);
-      if (v && !inputs.parentB) {
-        setInputs((i) => ({ ...i, parentB: defaultParentB() }));
-      }
-    },
-    [inputs.parentB]
-  );
+  const update = useCallback((f: (i: HouseholdInputs) => HouseholdInputs) => setInputs(f), []);
+  const updateMeta = useCallback((f: (m: SetupMeta) => SetupMeta) => setMeta(f), []);
 
   const result = useMemo<CalculationResult | null>(() => {
+    if (mode === "landing") return null;
     try {
-      return calculate({ ...inputs, parentB: hasB ? inputs.parentB : null });
+      return calculate(toEngineInputs(inputs, meta, today));
     } catch {
       return null;
     }
-  }, [inputs, hasB]);
+  }, [inputs, meta, mode, today]);
 
-  const TABS: { id: Tab; label: string }[] = [
-    { id: "inputs", label: "Inputs" },
-    { id: "eligibility", label: "Eligibility" },
-    { id: "optimise", label: "Optimise" },
-    { id: "chart", label: "Marginal rates" },
-  ];
+  // Keep the person's own answers on this device (never the example family).
+  useEffect(() => {
+    if (example || mode === "landing") return;
+    saveSession({ inputs, meta, step, mode });
+  }, [inputs, meta, step, mode, example]);
 
-  const inputsPanel = (
-    <InputsPanel
-      inputs={inputs}
-      hasB={hasB}
-      onParentA={setA}
-      onParentB={setB}
-      onChildren={setKids}
-      onHasB={handleHasB}
-      onHousehold={patchHH}
-    />
-  );
+  // Start each page at the top, with focus on its heading.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+    document.querySelector<HTMLElement>("[data-page-heading]")?.focus({ preventScroll: true });
+  }, [mode]);
+
+  const startFresh = () => {
+    clearSession();
+    setSaved(null);
+    setInputs(emptyHousehold(inputs.taxYear));
+    setMeta(emptyMeta());
+    setStep("family");
+    setFromReview(false);
+    setExample(false);
+    setMode("setup");
+  };
+  const showExample = () => {
+    setInputs(exampleHousehold(inputs.taxYear));
+    setMeta(EXAMPLE_META);
+    setExample(true);
+    setTab("eligibility");
+    setMode("results");
+  };
+  const resume = () => {
+    if (!saved) return;
+    setInputs(saved.inputs);
+    setMeta(saved.meta);
+    setStep(stepOrder(saved.meta).includes(saved.step) ? saved.step : "family");
+    setFromReview(false);
+    setExample(false);
+    setMode(saved.mode);
+  };
+  const goHome = () => {
+    setSaved(loadSession());
+    setExample(false);
+    setMode("landing");
+  };
+  const editStep = (s: StepId) => {
+    setStep(s);
+    setFromReview(true);
+    setMode("setup");
+  };
+  const finishEditAll = () => {
+    setMeta((m) => syncMeta(inputs, m));
+    setMode("results");
+  };
 
   return (
     <TooltipContext.Provider value={tooltips}>
-    <div style={{
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-      minHeight: "100vh",
-      background: "#f0f2f7",
-    }}>
-      {/* ── Header ──────────────────────────────────────────────────── */}
-      <div style={{
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1e3a5f 100%)",
-        color: "#fff",
-        padding: "14px 20px",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.18)",
-      }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: "linear-gradient(135deg, #3b82f6, #7c3aed)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 16, fontWeight: 900, color: "#fff",
-              }}>£</div>
-              <div>
-                <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.01em" }}>UK Childcare Tax Tool</div>
-                <div style={{ fontSize: 11, opacity: 0.55, marginTop: 1 }}>
-                  £100k cliff · TFC · 30-hour entitlement · HICBC
-                </div>
-              </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8, fontSize: 11, opacity: 0.9 }}>
-                Tax year
-                <select
-                  aria-label="Tax year"
-                  value={inputs.taxYear}
-                  onChange={(e) => setTaxYear(e.target.value as TaxYear)}
-                  style={{ background: "#1e293b", color: "#fff", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 6, padding: "3px 6px", fontSize: 12, fontWeight: 700 }}
-                >
-                  {CONFIGURED_TAX_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-                </select>
-              </label>
-              <div>
-              </div>
-            </div>
-          </div>
-          {result && (
-            <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-              {[
-                { label: "Parent A ANI", val: fmt(result.parentA.ani.adjustedNetIncome), warn: result.parentA.ani.adjustedNetIncome > 100_000 },
-                { label: "Household total", val: fmt(result.householdSummary.totalHouseholdNetPosition), warn: false },
-              ].map(({ label, val, warn }) => (
-                <div key={label} style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 10, opacity: 0.5, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>{label}</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: warn ? "#fca5a5" : "#fff" }}>{val}</div>
-                </div>
-              ))}
-              <DownloadButton result={result} />
+    <ParentNamesContext.Provider value={names}>
+    <div className="ob" style={{ minHeight: "100vh" }}>
+      <a href="#main" className="ob-skip">Skip to content</a>
+      <header className="ob-header">
+        <div className="ob-header-in">
+          <button type="button" className="ob-brand" onClick={goHome} aria-label="Childcare Tax Check — home">
+            <Logo />
+            <span>Childcare Tax Check</span>
+          </button>
+          <label className="ob-year">
+            Tax year
+            <select value={inputs.taxYear} onChange={(e) => setTaxYear(e.target.value as TaxYear)}>
+              {CONFIGURED_TAX_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </label>
+          {mode !== "landing" && (
+            <div className="ob-row ob-header-actions">
+              {!example && (
+                <span className="ob-saved">
+                  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" stroke="#0F766E" strokeWidth="2" fill="none" strokeLinecap="round" /></svg>
+                  Answers saved on this device
+                </span>
+              )}
+              <button type="button" className="ob-link" onClick={goHome}>Back to start</button>
             </div>
           )}
         </div>
-      </div>
+      </header>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "14px 16px 56px" }}>
-        {outOfDate && (
-          <div role="status" style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", fontSize: 12 }}>
-            The current tax year ({taxYearForDate(new Date())}) isn't configured yet, so this uses {LATEST_CONFIGURED_TAX_YEAR} rates.
-            Results may be out of date.
-          </div>
-        )}
-        {/* ── Tab bar ──────────────────────────────────────────────── */}
-        <div style={{
-          display: "flex",
-          gap: 2,
-          marginBottom: 16,
-          background: "#fff",
-          borderRadius: 10,
-          padding: 4,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-          border: "1px solid #e8eaf0",
-        }}>
-          {TABS.map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              style={{
-                flex: 1,
-                padding: "7px 4px",
-                border: "none",
-                borderRadius: 7,
-                cursor: "pointer",
-                fontSize: 13,
-                fontWeight: tab === id ? 700 : 500,
-                background: tab === id ? "#1e293b" : "transparent",
-                color: tab === id ? "#fff" : "#64748b",
-                boxShadow: tab === id ? "0 2px 6px rgba(0,0,0,0.15)" : "none",
-                transition: "all 0.14s",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 5,
-              }}
-            >
-              {label}
-              {(id === "eligibility" || id === "optimise") &&
-                result &&
-                result.atRiskThresholds.length > 0 && (
-                  <span style={{
-                    background: tab === id ? "#f59e0b" : "#ef4444",
-                    color: "#fff",
-                    borderRadius: 10,
-                    fontSize: 10,
-                    fontWeight: 800,
-                    padding: "0 5px",
-                    lineHeight: "16px",
-                  }}>
-                    {result.atRiskThresholds.length}
-                  </span>
-                )}
-            </button>
-          ))}
+      {outOfDate && (
+        <div role="status" className="ob-banner">
+          The current tax year ({taxYearForDate(new Date())}) isn’t configured yet, so this uses {LATEST_CONFIGURED_TAX_YEAR} rates. Results may be out of date.
         </div>
+      )}
+      {example && mode !== "landing" && (
+        <div role="status" className="ob-banner">
+          <span>
+            <strong>You’re looking at an example family.</strong> Alex earns £95,000 plus an £8,000 bonus, Sam earns £38,000, and they have one toddler.
+          </span>
+          <button type="button" className="ob-btn" onClick={startFresh}>Start with my details</button>
+        </div>
+      )}
 
-        {/* Full-width inputs tab */}
-        {tab === "inputs" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <div>
-              <ParentForm parent={inputs.parentA} onChange={setA} label="Parent A" taxYear={inputs.taxYear} />
-              <Toggle
-                label="Has a partner / second parent"
-                value={hasB}
-                onChange={handleHasB}
-              />
-              {hasB && inputs.parentB && (
-                <ParentForm parent={inputs.parentB} onChange={setB} label="Partner B" taxYear={inputs.taxYear} />
-              )}
+      {mode === "landing" && (
+        <Landing taxYear={inputs.taxYear} savedAt={saved?.savedAt ?? null}
+          onStart={startFresh} onExample={showExample} onResume={resume}
+          onDiscard={() => { clearSession(); setSaved(null); }} />
+      )}
+
+      {mode === "setup" && (
+        <SetupFlow inputs={inputs} meta={meta} step={step} fromReview={fromReview} today={today} result={result}
+          update={update} updateMeta={updateMeta} onStep={setStep}
+          onReview={() => { setFromReview(false); setMode("review"); }}
+          onExit={goHome} />
+      )}
+
+      {mode === "review" && (
+        <Review inputs={inputs} meta={meta} today={today} onChange={editStep}
+          onEditAll={() => setMode("editall")} onResults={() => setMode("results")} />
+      )}
+
+      {mode === "editall" && (
+        <EditAll inputs={inputs} meta={meta} update={update} updateMeta={updateMeta} onDone={finishEditAll} />
+      )}
+
+      {mode === "results" && (
+        <main className="ob-page" id="main">
+          {!result && (
+            <div role="alert" className="ob-note ob-note--warn">
+              Something in your answers stopped the calculation. Please check them with “Edit details”.
             </div>
-            <div>
-              <ChildrenForm children={inputs.children} onChange={setKids} />
-              <div
-                style={{
-                  background: "#f9fafb",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 10,
-                  padding: 14,
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#1f2937" }}>
-                  Household settings
-                </div>
-                <HouseholdSettingsFields inputs={inputs} onHousehold={patchHH} />
+          )}
+          {result && (
+            <ResultsSummary result={result} inputs={inputs}
+              onEdit={() => setMode("review")} onEditAll={() => setMode("editall")}
+              actions={<DownloadButton result={result} />} />
+          )}
+          {result && (
+            <section aria-label="Detailed results">
+              <div className="ob-tabs" role="tablist" aria-label="Detailed results">
+                {RESULT_TABS.map(({ id, label }) => (
+                  <button key={id} type="button" role="tab" id={`tab-${id}`} aria-selected={tab === id}
+                    aria-controls="results-panel" onClick={() => setTab(id)}>
+                    {label}
+                    {id !== "chart" && result.atRiskThresholds.length > 0 && (
+                      <span className="ob-tab-count" aria-label={`${result.atRiskThresholds.length} warnings`}>
+                        {result.atRiskThresholds.length}
+                      </span>
+                    )}
+                  </button>
+                ))}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Two-column layout for result tabs */}
-        {tab !== "inputs" && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "280px 1fr",
-              gap: 14,
-              alignItems: "start",
-            }}
-          >
-            {/* Sticky inputs sidebar */}
-            <div style={{
-                position: "sticky",
-                top: 12,
-                maxHeight: "calc(100vh - 80px)",
-                overflowY: "auto",
-                scrollbarWidth: "thin",
-              }}>
-              {inputsPanel}
-            </div>
-
-            {/* Results */}
-            <div>
-              {!result && (
-                <div style={{
-                  padding: 32,
-                  textAlign: "center",
-                  color: "#dc2626",
-                  background: "#fff",
-                  borderRadius: 12,
-                  border: "1px solid #fecaca",
-                  fontWeight: 600,
-                  fontSize: 14,
-                }}>
-                  ⚠ Calculation error — please check your inputs
-                </div>
-              )}
-              {result && tab === "eligibility" && <EligibilityPanel result={result} />}
-              {result && tab === "optimise" && <OptimisePanel result={result} />}
-              {result && tab === "chart" && <ChartPanel result={result} />}
-            </div>
-          </div>
-        )}
-
-        <div style={{ marginTop: 28, fontSize: 11, color: "#94a3b8", textAlign: "center", lineHeight: 1.7 }}>
-          Educational planning tool only · Not financial or tax advice · Tax year {inputs.taxYear} · England<br />
-          Always verify figures with a qualified financial adviser or accountant
-        </div>
-      </div>
+              <div id="results-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="ob-results-panel">
+                {tab === "eligibility" && <EligibilityPanel result={result} />}
+                {tab === "optimise" && <OptimisePanel result={result} />}
+                {tab === "chart" && <ChartPanel result={result} />}
+              </div>
+            </section>
+          )}
+          <p className="ob-fineprint" style={{ textAlign: "center" }}>
+            Planning help, not financial or tax advice · Tax year {inputs.taxYear}.<br />
+            Check important decisions with a qualified financial adviser or accountant.
+          </p>
+        </main>
+      )}
     </div>
+    </ParentNamesContext.Provider>
     </TooltipContext.Provider>
   );
 }
