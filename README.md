@@ -173,7 +173,7 @@ npm run build   # type-checks (tsc -b) and builds
 npm run lint    # ESLint
 ```
 
-Both currently report errors, mostly unused variables in the engine. Don't add new ones. Check calculation changes by hand against the rules in [`rules.md`](rules.md). Adding a test suite for the engine in `src/engine-src/` (Vitest fits the existing Vite setup) is a welcome contribution.
+Both must pass with no errors before a change is merged; the GitHub Pages deploy runs `npm run build` and fails on type errors. Check calculation changes by hand against the rules in [`rules.md`](rules.md). Adding a test suite for the engine in `src/engine-src/` (Vitest fits the existing Vite setup) is a welcome contribution.
 
 ---
 
@@ -233,7 +233,7 @@ Contributions are very welcome, particularly:
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/scotland-free-hours`
-3. Make your changes without adding new `npm run build` or `npm run lint` errors
+3. Make your changes and make sure `npm run build` and `npm run lint` both pass
 4. Check any new calculation logic against `rules.md`
 5. Open a pull request with a clear description of the change
 
