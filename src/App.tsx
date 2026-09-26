@@ -25,7 +25,7 @@ import {
   ComposedChart,
   Line,
 } from "recharts";
-import { calculate, createEmptyParentIncome, TAX_YEAR_2025_26, TAX_YEAR_2026_27 } from "./engine-src/index";
+import { calculate, createEmptyParentIncome, rsuVestDateForTaxYear, TAX_YEAR_2025_26, TAX_YEAR_2026_27 } from "./engine-src/index";
 import { generateReport } from "./generatePDF";
 import type {
   HouseholdInputs,
@@ -37,6 +37,7 @@ import type {
   ANIBreakdown,
   PensionCapacity,
   MinimumIncomeAgeBand,
+  TaxYear,
 } from "./engine-src/index";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,10 +444,12 @@ function ParentForm({
   parent,
   onChange,
   label,
+  taxYear,
 }: {
   parent: ParentIncome;
   onChange: (p: ParentIncome) => void;
   label: string;
+  taxYear: TaxYear;
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const set = useCallback(
@@ -493,7 +496,7 @@ function ParentForm({
           set({
             rsuVests:
               v > 0
-                ? [{ vestDate: "2025-10-01", grossValue: v, employerNICTransferred: false }]
+                ? [{ vestDate: rsuVestDateForTaxYear(taxYear), grossValue: v, employerNICTransferred: false }]
                 : [],
           })
         }
@@ -2151,10 +2154,10 @@ function InputsPanel({
 }) {
   return (
     <>
-      <ParentForm parent={inputs.parentA} onChange={onParentA} label="Parent A" />
+      <ParentForm parent={inputs.parentA} onChange={onParentA} label="Parent A" taxYear={inputs.taxYear} />
       <Toggle label="Has a partner / second parent" value={hasB} onChange={onHasB} />
       {hasB && inputs.parentB && (
-        <ParentForm parent={inputs.parentB} onChange={onParentB} label="Partner B" />
+        <ParentForm parent={inputs.parentB} onChange={onParentB} label="Partner B" taxYear={inputs.taxYear} />
       )}
       <ChildrenForm children={inputs.children} onChange={onChildren} />
       <div
@@ -2397,14 +2400,14 @@ export default function App() {
         {tab === "inputs" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
-              <ParentForm parent={inputs.parentA} onChange={setA} label="Parent A" />
+              <ParentForm parent={inputs.parentA} onChange={setA} label="Parent A" taxYear={inputs.taxYear} />
               <Toggle
                 label="Has a partner / second parent"
                 value={hasB}
                 onChange={handleHasB}
               />
               {hasB && inputs.parentB && (
-                <ParentForm parent={inputs.parentB} onChange={setB} label="Partner B" />
+                <ParentForm parent={inputs.parentB} onChange={setB} label="Partner B" taxYear={inputs.taxYear} />
               )}
             </div>
             <div>

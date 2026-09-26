@@ -51,6 +51,15 @@ function taxYearStartYear(taxYear: string): number {
 }
 
 /**
+ * A representative vest date inside a tax year (1 October of its start year),
+ * for inputs that record an RSU value without a real vest date. Any date
+ * between 6 April and 5 April would do; mid-year keeps well clear of both ends.
+ */
+export function rsuVestDateForTaxYear(taxYear: string): string {
+  return `${taxYearStartYear(taxYear)}-10-01`;
+}
+
+/**
  * Calculates the ANI-relevant income from a single RSU vest.
  *
  * rules.md §1.3 and §6.4:

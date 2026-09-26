@@ -67,6 +67,7 @@ export {
   calculatePensionCarryForward,
   totalPensionContributionsThisYear,
   calculateRSUANIAmount,
+  rsuVestDateForTaxYear,
 } from "./engine/ani";
 
 export {
