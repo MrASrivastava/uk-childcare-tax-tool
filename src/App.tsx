@@ -25,7 +25,7 @@ import {
   ComposedChart,
   Line,
 } from "recharts";
-import { calculate, createEmptyParentIncome } from "./engine-src/index";
+import { calculate, createEmptyParentIncome, TAX_YEAR_2025_26, TAX_YEAR_2026_27 } from "./engine-src/index";
 import { generateReport } from "./generatePDF";
 import type {
   HouseholdInputs,
@@ -129,7 +129,7 @@ const TT = {
   statutoryLeave: `Parents on maternity, paternity, adoption or shared parental leave are exempt from the minimum income requirement for Tax-Free Childcare and 30-hour free childcare. This means you remain eligible even if your income during leave falls below the minimum threshold of £10,158/year.`,
   scotlandResident: `Scottish residents pay income tax under different rates set by the Scottish Parliament. There are 6 bands in Scotland vs 3 in England. Higher earners in Scotland pay more income tax than in England. The ANI calculation, childcare thresholds, and TFC rules are identical across the UK.`,
   childBenefitRegistered: `Even if you expect to lose all of your Child Benefit to the High Income charge, it's worth registering. Registration preserves National Insurance credits (which count towards your State Pension) and ensures your child gets an NI number before age 16. You can register but opt out of receiving payments.`,
-  cbPayments: `If your (or your partner's) income is over £80,000, you lose all Child Benefit through the High Income Child Benefit Charge. In that case, electing NOT to receive payments avoids having to complete Self Assessment — while still preserving your NI credits if you're registered.`,
+  cbPayments: `If your (or your partner's) income is over £80,000, you lose all Child Benefit through the High Income Child Benefit Charge. In that case, electing NOT to receive payments means there is no charge to report or pay — while still preserving your NI credits if you're registered.`,
   childcareSpend: `Your estimated total annual spend on nurseries, childminders, after-school clubs, and holiday clubs. This is used to calculate your Tax-Free Childcare top-up — the government adds 25p for every £1 you pay in, up to a maximum of £2,000 per child per year (£4,000 for disabled children).`,
   childDOB: `The child's date of birth determines which free childcare entitlement applies and when it starts. Eligibility begins the term after the child reaches the relevant age milestone — it does not start on the child's birthday.`,
   childDisabled: `Children with disabilities have extended eligibility for Tax-Free Childcare: up to age 17 (vs 12 for non-disabled children), and the maximum government top-up doubles to £4,000/year (vs £2,000).`,
@@ -138,8 +138,8 @@ const TT = {
   ani: `Adjusted Net Income (ANI) is the statutory measure defined in ITA 2007 s.58. It is NOT the same as your salary. ANI = salary (after sacrifice) + all other income − pension contributions (relief-at-source) − Gift Aid donations. Every childcare threshold and the personal allowance taper are tested against ANI, not your salary.`,
   freeHours: `Working parents can receive up to 30 hours/week of government-funded childcare during term time (38 weeks/year), worth roughly £8,550/year for a 3-4 year old. Both parents must individually earn at least £10,158/year AND neither can earn more than £100,000. Losing this because one parent earns £1 over £100k is one of the most costly tax cliff edges in the UK.`,
   tfc: `Tax-Free Childcare (TFC) is a government top-up scheme. For every £8 you deposit into a TFC account, HMRC adds £2 (= 25% top-up). Maximum: £2,000/year per child (£4,000 for disabled). If EITHER parent earns over £100,000, the whole family loses TFC completely — there is no gradual reduction. You must reconfirm eligibility every 3 months.`,
-  childBenefit: `Child Benefit is £25.60/week for your first child and £16.95/week for each additional child (2025/26). It is a universal benefit — anyone responsible for a child under 16 can claim. However, if the higher earner in the household has ANI over £60,000, a charge (HICBC) claws some or all of it back.`,
-  hicbc: `The High Income Child Benefit Charge (HICBC) claws back Child Benefit when the higher earner's ANI exceeds £60,000. The charge is: (ANI − £60,000) ÷ £20,000 × Child Benefit received. At £80,000 ANI it reaches 100% — all Child Benefit is repaid. The charge is paid via Self Assessment.`,
+  childBenefit: `Child Benefit is £${TAX_YEAR_2025_26.childBenefit.firstChildWeekly.toFixed(2)}/week for your eldest or only child and £${TAX_YEAR_2025_26.childBenefit.additionalChildWeekly.toFixed(2)}/week for each additional child in 2025/26 (£${TAX_YEAR_2026_27.childBenefit.firstChildWeekly.toFixed(2)} and £${TAX_YEAR_2026_27.childBenefit.additionalChildWeekly.toFixed(2)} in 2026/27). It is a universal benefit — anyone responsible for a child under 16 can claim. However, if the higher earner in the household has ANI over £60,000, a charge (HICBC) claws some or all of it back.`,
+  hicbc: `The High Income Child Benefit Charge (HICBC) claws back Child Benefit when the higher earner's ANI exceeds £60,000. The charge is 1% of the Child Benefit received for every £200 of ANI above £60,000. At £80,000 ANI it reaches 100% — all Child Benefit is repaid. Employees can pay it through their PAYE tax code using HMRC's online HICBC service; if you already file Self Assessment (e.g. for rental or self-employment income), declare it on your return.`,
   pensionCapacity: `Annual Allowance is the maximum total pension contributions (from you and your employer combined) in a tax year. The standard limit is £60,000. Unused allowances from the previous 3 years can be carried forward. If you have accessed pension savings flexibly, the Money Purchase Annual Allowance (£10,000) applies instead.`,
   takeHome: `Net take-home pay is calculated as: gross salary minus salary sacrifice, minus income tax, minus National Insurance, minus any personal pension contributions paid, minus Gift Aid donations actually paid out. It represents the cash you receive in your bank account.`,
 
@@ -1370,7 +1370,12 @@ function EligibilityPanel({ result }: { result: CalculationResult }) {
         </div>
         {hicbc.selfAssessmentRequired && (
           <div style={{ marginTop: 6, fontSize: 12, color: "#dc2626" }}>
-            ⚠ Self Assessment required to declare HICBC
+            ⚠ Declare the HICBC on your Self Assessment return
+          </div>
+        )}
+        {hicbc.payeOptionAvailable && (
+          <div style={{ marginTop: 6, fontSize: 12, color: "#b45309" }}>
+            ⚠ HICBC is payable — you can pay it through your PAYE tax code using HMRC's online service
           </div>
         )}
       </SchemeCard>

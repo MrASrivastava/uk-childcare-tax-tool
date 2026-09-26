@@ -79,7 +79,7 @@ export interface HICBCConfig {
   startThreshold: number;
   /** ANI at which Child Benefit is fully clawed back */
   fullClawbackThreshold: number;
-  /** Denominator used in taper calculation */
+  /** Denominator used in taper calculation (1% of CB per complete £200 = 100% over £20,000) */
   taperDenominator: number;
 }
 
@@ -211,8 +211,8 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
   minimumIncomeHoursPerWeek: MIN_INCOME_WEEKLY_HOURS,
 
   childBenefit: {
-    firstChildWeekly: 25.60,
-    additionalChildWeekly: 16.95,
+    firstChildWeekly: 26.05,
+    additionalChildWeekly: 17.25,
   },
 
   hicbc: {

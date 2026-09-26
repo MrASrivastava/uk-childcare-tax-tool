@@ -161,8 +161,17 @@ export interface HICBCResult {
    * rules.md §2.4.3.
    */
   retentionFraction: number;
-  /** Whether the higher earner must file Self Assessment due to HICBC */
+  /**
+   * Whether the HICBC must be declared on a Self Assessment return: the charge
+   * is payable AND the higher earner already files one (self-employment or
+   * property income).
+   */
   selfAssessmentRequired: boolean;
+  /**
+   * Whether the charge can be paid through the PAYE tax code using HMRC's
+   * online HICBC service instead of Self Assessment.
+   */
+  payeOptionAvailable: boolean;
   /**
    * Whether NI credits are preserved.
    * True when registered (even if opted out of payments) — registration alone preserves credits.

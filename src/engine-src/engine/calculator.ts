@@ -38,6 +38,15 @@ import {
 } from "./eligibility";
 import { computeOptimisationRecommendations } from "./optimiser";
 
+/**
+ * Whether a parent has income that requires a Self Assessment return anyway
+ * (self-employment or property income). Such parents declare HICBC there;
+ * others can pay it through PAYE.
+ */
+function filesSelfAssessment(parent: import("../types/income").ParentIncome): boolean {
+  return parent.selfEmploymentProfit > 0 || parent.rentalIncomeNet > 0;
+}
+
 // ---------------------------------------------------------------------------
 // Pension capacity helper
 // ---------------------------------------------------------------------------
@@ -435,7 +444,11 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
     parentBANI,
     inputs.childBenefitRegistered,
     inputs.childBenefitPaymentsElected,
-    config
+    config,
+    {
+      parentA: filesSelfAssessment(inputs.parentA),
+      parentB: inputs.parentB ? filesSelfAssessment(inputs.parentB) : false,
+    }
   );
 
   // ---- Step 9: Net take-home per parent -----------------------------------

@@ -696,8 +696,9 @@ export function grossAnnualChildBenefit(
  *
  * Calculates the HICBC charge and clawback fraction for a given higher-earner ANI.
  *
- * Formula (rules.md §2.4.3):
- *   retentionFraction = min((ANI − 60,000) / 20,000, 1.0)
+ * Formula (rules.md §2.4.3, ITEPA 2003 s.681C):
+ *   1% of Child Benefit for every complete £200 of ANI above £60,000
+ *   retentionFraction = min(floor((ANI − 60,000) / 200), 100) / 100
  *   charge = grossChildBenefit × retentionFraction
  *
  * Taper: £60,000 = 0% clawback; £80,000+ = 100% clawback.
@@ -712,10 +713,8 @@ export function computeHICBCCharge(
     higherEarnerANI - config.hicbc.startThreshold,
     0
   );
-  const retentionFraction = Math.min(
-    excess / config.hicbc.taperDenominator,
-    1.0
-  );
+  const stepSize = config.hicbc.taperDenominator / 100; // £200
+  const retentionFraction = Math.min(Math.floor(excess / stepSize), 100) / 100;
   // Round to pence to avoid floating-point display artifacts
   const charge = Math.round(grossChildBenefit * retentionFraction * 100) / 100;
   return { charge, retentionFraction };
@@ -733,7 +732,9 @@ export function computeHICBCCharge(
  * - Always register for Child Benefit — even if opting out of cash payments.
  *   Registration preserves NI credits (→ State Pension) and child's NI number at 16.
  * - If higher earner ANI >= £80,000: opt out of payments (100% clawback; no benefit to receiving).
- * - If ANI is £60,000–£80,000: keep payments but file Self Assessment for HICBC.
+ * - If ANI is £60,000–£80,000: keep payments and pay the HICBC, either through
+ *   the PAYE tax code (HMRC's online HICBC service) or through Self Assessment
+ *   if the higher earner already files a return.
  * - The HIGHER earner pays the charge, regardless of who receives the payments.
  */
 export function computeHICBC(
@@ -742,7 +743,8 @@ export function computeHICBC(
   parentBANI: number | null,
   childBenefitRegistered: boolean,
   childBenefitPaymentsElected: boolean,
-  config: TaxYearConfig
+  config: TaxYearConfig,
+  higherEarnerFilesSelfAssessment: { parentA: boolean; parentB: boolean } = { parentA: false, parentB: false }
 ): HICBCResult {
   const childCount = children.length;
   const grossAnnual = grossAnnualChildBenefit(childCount, config);
@@ -762,11 +764,18 @@ export function computeHICBC(
     ? grossAnnual - hicbcCharge
     : 0;
 
-  // Self Assessment required when payments received AND ANI > £60,000
-  // rules.md §2.4.4.
-  const selfAssessmentRequired =
-    childBenefitPaymentsElected &&
-    higherEarnerANI > config.hicbc.startThreshold;
+  // HICBC is payable when payments are received and ANI > £60,000.
+  // Employees with no other reason to file can pay it through their PAYE tax
+  // code using HMRC's online service instead of registering for Self
+  // Assessment. Those with self-employment or property income still file a
+  // return and declare it there. rules.md §2.4.4.
+  const hicbcPayable = hicbcCharge > 0;
+  const filesSA =
+    higherEarnerLabel === "Parent B"
+      ? higherEarnerFilesSelfAssessment.parentB
+      : higherEarnerFilesSelfAssessment.parentA;
+  const selfAssessmentRequired = hicbcPayable && filesSA;
+  const payeOptionAvailable = hicbcPayable && !filesSA;
 
   // ---- Recommendation (rules.md §2.4.5) ------------------------------------
   let recommendation: HICBCResult["recommendation"];
@@ -789,7 +798,7 @@ export function computeHICBC(
       `Child Benefit is being fully clawed back by HICBC ` +
       `(100% withdrawal at ANI >= £${config.hicbc.fullClawbackThreshold.toLocaleString()}). ` +
       "There is no financial benefit to continuing payments. Elect to stop receiving them " +
-      "to eliminate the HICBC liability entirely and remove the Self Assessment obligation. " +
+      "to eliminate the HICBC liability and the need to report and pay it. " +
       "NI credits are preserved by the existing registration alone.";
   } else {
     // Either below HICBC threshold, partially affected, or already opted out
@@ -806,7 +815,10 @@ export function computeHICBC(
     recommendationReason =
       hicbcDescription +
       (selfAssessmentRequired
-        ? " Self Assessment must be filed annually to declare and pay the HICBC."
+        ? " Declare and pay the HICBC on your Self Assessment return."
+        : payeOptionAvailable
+        ? " You can pay the HICBC through your PAYE tax code using HMRC's online " +
+          "HICBC service, without registering for Self Assessment."
         : "");
   }
 
@@ -823,6 +835,7 @@ export function computeHICBC(
     netChildBenefitAnnual,
     retentionFraction,
     selfAssessmentRequired,
+    payeOptionAvailable,
     niCreditsPreserved,
     recommendation,
     recommendationReason,

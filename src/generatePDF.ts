@@ -20,6 +20,7 @@
 
 import jsPDF from "jspdf";
 import type { CalculationResult } from "./engine-src/index";
+import { getTaxYearConfig } from "./engine-src/index";
 
 // ---------------------------------------------------------------------------
 // Colours
@@ -814,7 +815,7 @@ function drawSchemes(d: Doc, r: CalculationResult) {
   d.gap(2);
   d.sectionHeading("Tax-Free Childcare (TFC)");
   d.para(
-    `For every ${GBP}8 deposited in a TFC account, HMRC adds ${GBP}2 (25% top-up). Maximum ${GBP}2,000/child/year ` +
+    `For every ${GBP}8 you pay in, the government adds ${GBP}2 -- 20% of the childcare bill. Maximum ${GBP}2,000/child/year ` +
     `(${GBP}4,000 for disabled children). TFC is disqualified entirely if EITHER parent's ANI exceeds ${GBP}100,000 -- ` +
     `there is no taper. Reconfirm eligibility every 3 months.`,
     MUTED
@@ -832,10 +833,11 @@ function drawSchemes(d: Doc, r: CalculationResult) {
 
   d.gap(4);
   d.sectionHeading("Child Benefit & HICBC");
+  const cb = getTaxYearConfig(r.taxYear).childBenefit;
   d.para(
-    `Child Benefit (${GBP}25.60/wk first child, ${GBP}16.95/wk each additional, 2025/26) is universal but ` +
+    `Child Benefit (${GBP}${cb.firstChildWeekly.toFixed(2)}/wk eldest child, ${GBP}${cb.additionalChildWeekly.toFixed(2)}/wk each additional, ${r.taxYear}) is universal but ` +
     `clawed back via HICBC when the higher earner's ANI exceeds ${GBP}60,000. The charge is ` +
-    `(ANI - ${GBP}60,000) / ${GBP}20,000 x Child Benefit. It reaches 100% at ${GBP}80,000.`,
+    `1% of Child Benefit per ${GBP}200 of ANI above ${GBP}60,000. It reaches 100% at ${GBP}80,000.`,
     MUTED
   );
   d.gap(2);
@@ -850,12 +852,16 @@ function drawSchemes(d: Doc, r: CalculationResult) {
   d.kvRow("NI credits preserved",
     h.niCreditsPreserved ? "Yes -- registered for CB" : "No -- register to protect State Pension credits",
     h.niCreditsPreserved ? GREEN : AMBER);
-  if (h.selfAssessmentRequired) {
+  if (h.selfAssessmentRequired || h.payeOptionAvailable) {
     d.gap(1);
     d.pdf.setFont("helvetica", "bold");
     d.pdf.setFontSize(8);
     d.pdf.setTextColor(...RED);
-    d.pdf.text("Self Assessment must be filed to declare and pay the HICBC.", ML, d.y);
+    d.pdf.text(
+      h.selfAssessmentRequired
+        ? "Declare and pay the HICBC on your Self Assessment return."
+        : "HICBC is payable -- it can be paid via your PAYE tax code (HMRC online HICBC service).",
+      ML, d.y);
     d.y += 5;
   }
   d.gap(2);
