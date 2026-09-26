@@ -8,6 +8,8 @@
 [![Tests](https://img.shields.io/badge/Tests-489%20passing-brightgreen)](#testing)
 [![Tax Year](https://img.shields.io/badge/Tax%20Year-2025%2F26-orange)](#tax-year-coverage)
 
+**▶ Try it now: https://mrasrivastava.github.io/uk-childcare-tax-tool/** — no install needed, runs entirely in your browser.
+
 ---
 
 ## What this tool does
