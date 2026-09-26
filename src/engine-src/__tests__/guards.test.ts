@@ -110,6 +110,18 @@ describe("tax year configs", () => {
     expect(stale).toEqual([]);
   });
 
+  it("every verifiedOn is a real ISO date, not in the future, with a note saying how it was checked", () => {
+    for (const config of years) {
+      for (const source of config.sources) {
+        if (source.verifiedOn === null) continue;
+        expect(source.verifiedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(Number.isNaN(Date.parse(source.verifiedOn))).toBe(false);
+        expect(new Date(source.verifiedOn).getTime()).toBeLessThanOrEqual(Date.now());
+        expect(source.note, `${config.taxYear} ${source.field}`).toBeTruthy();
+      }
+    }
+  });
+
   it("each source URL is an official GOV.UK or gov.scot page", () => {
     for (const config of years) {
       for (const source of config.sources) expect(source.url).toMatch(/^https:\/\/www\.gov\.(uk|scot)\//);

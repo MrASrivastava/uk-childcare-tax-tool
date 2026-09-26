@@ -301,30 +301,36 @@ const SOURCES_2025_26: ConfigSource[] = [
   ),
 ];
 
+const CHECKED_2026_09_26 = "2026-09-26";
+const VIA_SEARCH = "Checked against GOV.UK search results quoting this page; the page itself was not opened.";
+const verified = (field: string, url: string, note = VIA_SEARCH): ConfigSource =>
+  ({ field, url, verifiedOn: CHECKED_2026_09_26, note });
+
 /** Sources for 2026/27. */
 const SOURCES_2026_27: ConfigSource[] = [
-  unverified("personalAllowance, basic rate limit", `${GOV}/government/publications/the-personal-allowance-and-basic-rate-limit-for-income-tax-and-certain-national-insurance-contributions-nics-thresholds-from-6-april-2026-to-5-apr`),
+  verified("personalAllowance, basic rate limit", `${GOV}/government/publications/the-personal-allowance-and-basic-rate-limit-for-income-tax-and-certain-national-insurance-contributions-nics-thresholds-from-6-april-2026-to-5-apr`),
   unverified("incomeTaxBands (additional rate threshold), personalAllowanceTaperStart/End", `${GOV}/income-tax-rates`),
-  unverified("scottishIncomeTaxBands", "https://www.gov.scot/publications/scottish-income-tax-technical-factsheet/"),
-  unverified("employeeNICBands, employerNICRate", `${GOV}/guidance/rates-and-thresholds-for-employers-2026-to-2027`),
-  unverified("class1Periods.weekly, class1Periods.monthly", `${GOV}/guidance/rates-and-thresholds-for-employers-2026-to-2027`),
-  unverified("class1Periods.fortnightly, class1Periods.four_weekly", `${GOV}/government/publications/cwg2-further-guide-to-paye-and-national-insurance-contributions/2026-to-2027-employer-further-guide-to-paye-and-national-insurance-contributions`),
-  unverified("class4NIC", `${GOV}/self-employed-national-insurance-rates`),
-  unverified("nationalMinimumWageHourly, minimumWageByAgeBand", `${GOV}/national-minimum-wage-rates`),
-  unverified("freeHours.minimumIncomeThreshold, tfc.minimumIncomeThreshold (3-month amounts)", `${GOV}/tax-free-childcare/check-if-youre-eligible`),
-  unverified("childBenefit", `${GOV}/child-benefit/what-youll-get`),
+  verified("scottishIncomeTaxBands", "https://www.gov.scot/publications/scottish-income-tax-technical-factsheet/", "Checked against gov.scot search results quoting this page; the page itself was not opened."),
+  verified("employeeNICBands thresholds (primary threshold £12,570, UEL £50,270)", `${GOV}/guidance/rates-and-thresholds-for-employers-2026-to-2027`),
+  unverified("employeeNICBands rates (8% / 2%), employerNICRate", `${GOV}/guidance/rates-and-thresholds-for-employers-2026-to-2027`),
+  verified("class1Periods.weekly, class1Periods.monthly", `${GOV}/guidance/rates-and-thresholds-for-employers-2026-to-2027`),
+  unverified("class1Periods.fortnightly, class1Periods.four_weekly", `${GOV}/government/publications/cwg2-further-guide-to-paye-and-national-insurance-contributions/2026-to-2027-employer-further-guide-to-paye-and-national-insurance-contributions`, "2 × and 4 × the weekly thresholds, following the CWG2 method for multi-week pay periods; HMRC does not list these figures separately."),
+  verified("class4NIC", `${GOV}/self-employed-national-insurance-rates`),
+  verified("nationalMinimumWageHourly, minimumWageByAgeBand", `${GOV}/national-minimum-wage-rates`),
+  verified("freeHours.minimumIncomeThreshold, tfc.minimumIncomeThreshold (3-month amounts)", `${GOV}/tax-free-childcare/check-if-youre-eligible`),
+  verified("childBenefit", `${GOV}/child-benefit/what-youll-get`),
   unverified("hicbc", `${GOV}/child-benefit-tax-charge`),
   unverified("freeHours", `${GOV}/free-childcare-if-working`),
-  unverified("freeHours.benefitsRouteIncomeLimit", `${GOV}/help-with-childcare-costs/free-childcare-2-year-olds-claim-benefits`),
+  verified("freeHours.benefitsRouteIncomeLimit", `${GOV}/help-with-childcare-costs/free-childcare-2-year-olds-claim-benefits`),
   unverified("tfc", `${GOV}/tax-free-childcare`),
   unverified("pension", `${GOV}/tax-on-your-private-pension/annual-allowance`),
-  unverified("evBiKRate", `${GOV}/government/publications/income-tax-increasing-the-appropriate-percentage-for-company-cars/taxation-of-company-cars-the-appropriate-percentage-for-tax-years-2025-to-2026-2026-to-2027-and-2027-to-2028`),
+  verified("evBiKRate", `${GOV}/government/publications/income-tax-increasing-the-appropriate-percentage-for-company-cars/taxation-of-company-cars-the-appropriate-percentage-for-tax-years-2025-to-2026-2026-to-2027-and-2027-to-2028`, "Search results confirmed the 1-point rise for 2026/27 (3% to 4% for zero-emission cars); the table itself was not opened."),
   unverified("isaAllowance", `${GOV}/individual-savings-accounts`),
   unverified("personalSavingsAllowance, startingRateForSavingsBand", `${GOV}/apply-tax-free-interest-on-savings`),
-  unverified("dividendAllowance, dividendRates", `${GOV}/government/publications/changes-to-tax-rates-for-property-savings-dividend-income/changes-to-tax-rates-for-property-savings-dividend-income`),
+  verified("dividendAllowance, dividendRates", `${GOV}/government/publications/changes-to-tax-rates-for-property-savings-dividend-income/changes-to-tax-rates-for-property-savings-dividend-income`),
   unverified("rentalFinanceCostReliefRate", `${GOV}/guidance/changes-to-tax-relief-for-residential-landlords-how-its-worked-out-including-case-studies`),
   unverified("cgtAnnualExemptAmount", `${GOV}/capital-gains-tax/allowances`),
-  unverified("defaultProviderHourlyRates", `${GOV}/government/publications/early-years-funding-2026-to-2027/2026-to-2027-early-years-national-funding-formulae-technical-note`),
+  verified("defaultProviderHourlyRates", `${GOV}/government/publications/early-years-funding-2026-to-2027/2026-to-2027-early-years-national-funding-formulae-technical-note`),
 ];
 
 export const TAX_YEAR_2025_26: TaxYearConfig = {
