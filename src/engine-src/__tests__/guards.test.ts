@@ -110,9 +110,33 @@ describe("tax year configs", () => {
     expect(stale).toEqual([]);
   });
 
-  it("each source URL is on gov.uk", () => {
+  it("every verifiedOn is a real ISO date, not in the future, with a note saying how it was checked", () => {
     for (const config of years) {
-      for (const source of config.sources) expect(source.url).toMatch(/^https:\/\/www\.gov\.uk\//);
+      for (const source of config.sources) {
+        if (source.verifiedOn === null) continue;
+        expect(source.verifiedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(Number.isNaN(Date.parse(source.verifiedOn))).toBe(false);
+        expect(new Date(source.verifiedOn).getTime()).toBeLessThanOrEqual(Date.now());
+        expect(source.note, `${config.taxYear} ${source.field}`).toBeTruthy();
+      }
+    }
+  });
+
+  it("each source URL is an official GOV.UK or gov.scot page", () => {
+    for (const config of years) {
+      for (const source of config.sources) expect(source.url).toMatch(/^https:\/\/www\.gov\.(uk|scot)\//);
+    }
+  });
+
+  it("no year's sources point at another year's dated page, unless a note explains why", () => {
+    for (const config of years) {
+      const start = parseInt(config.taxYear.slice(0, 4), 10);
+      const ownYear = `${start}-to-${start + 1}`;
+      for (const source of config.sources) {
+        const dated = source.url.match(/(20\d\d)-to-(20\d\d)/g) ?? [];
+        const foreign = dated.filter((d) => d !== ownYear && !source.url.includes(ownYear));
+        if (foreign.length > 0) expect(source.note, `${config.taxYear} ${source.field}: ${source.url}`).toBeTruthy();
+      }
     }
   });
 

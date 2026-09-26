@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculate } from "../index";
+import { calculate, getTaxYearConfig } from "../index";
 import type { ParentIncome } from "../index";
 import { household, parent } from "./fixtures";
 
@@ -41,5 +41,21 @@ describe("Class 1 NIC per pay period (N5)", () => {
     const r = calculate(household({ parentA: parent(40_000, { bonus: { expectedThisYear: 30_000, isDiscretionary: true } }) }));
     within5(r.parentA.nic.class1Employee, 3_410.6);
     expect(r.inputWarnings.some((w) => w.includes("payment month"))).toBe(true);
+  });
+});
+
+describe("Class 1 thresholds for multi-week pay periods", () => {
+  it("are the weekly figures multiplied by the number of weeks", () => {
+    for (const year of ["2025/26", "2026/27"] as const) {
+      const p = getTaxYearConfig(year).class1Periods;
+      expect(p.fortnightly).toEqual({ primaryThreshold: 2 * p.weekly.primaryThreshold, upperEarningsLimit: 2 * p.weekly.upperEarningsLimit });
+      expect(p.four_weekly).toEqual({ primaryThreshold: 4 * p.weekly.primaryThreshold, upperEarningsLimit: 4 * p.weekly.upperEarningsLimit });
+    }
+  });
+
+  it("charge four-weekly pay on £968 / £3,868", () => {
+    const n = nic(parent(30_000, { payFrequency: "four_weekly" }));
+    expect(n.class1ByPeriod).toHaveLength(13);
+    expect(n.class1ByPeriod[0]).toBeCloseTo((30_000 / 13 - 968) * 0.08, 6);
   });
 });

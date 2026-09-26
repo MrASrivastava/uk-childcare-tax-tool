@@ -225,9 +225,9 @@ The same term-start rule applies for the 2-year-old and 3-year-old milestones.
 - gets Disability Living Allowance;
 - has an education, health and care (EHC) plan;
 - is looked after by a local authority, or has left care through adoption, a special guardianship order or a child arrangements order; or
-- is in a family getting certain benefits (the benefits route: for Universal Credit, household earned income of £15,400 a year or less).
+- is in a family getting certain benefits (the benefits route: for Universal Credit, household income of £15,400 a year or less after tax, not counting benefits).
 
-The first three are not income-tested, so those children keep 15 hours above the £100,000 cliff, and only 15 hours (not 30) are lost there. If the child also qualifies for the working-parent entitlement, the two combine to 30 hours, not 45. The tool ignores the benefits route, with a warning, when household earnings are above its limit. The TFC disability test (DLA, PIP or blind) is not the same, so the tool asks separately rather than inferring it.
+The first three are not income-tested, so those children keep 15 hours above the £100,000 cliff, and only 15 hours (not 30) are lost there. If the child also qualifies for the working-parent entitlement, the two combine to 30 hours, not 45. The tool ignores the benefits route, with a warning, when household income after tax and National Insurance is above its limit. The TFC disability test (DLA, PIP or blind) is not the same, so the tool asks separately rather than inferring it.
 
 **Term-time definition:** 38 weeks per year minimum; maximum 52 weeks depending on provider. The statutory entitlement is **570 hours per year** (30 hours × 38 weeks = 1,140 hours capped at 570 for the base universal entitlement, 1,140 for the full working parent entitlement). Providers may stretch the hours across more weeks at fewer hours per week.
 
@@ -628,7 +628,7 @@ Scottish rates and bands apply to **non-savings income only**. Savings and divid
 
 **Benefits in kind** are not subject to employee Class 1 NIC; the employer pays Class 1A NIC on them. Net pay arrangement pension contributions do not reduce the NIC base.
 
-**Earnings periods.** Employee Class 1 is worked out per earnings period, using that period's published thresholds (2025/26 and 2026/27 monthly: primary threshold £1,048, UEL £4,189; weekly £242 / £967). A bonus counts in the period it is paid, and an RSU vest in the period it is processed. Directors normally have an annual earnings period. The tool spreads base pay evenly, puts a bonus in its payment month (or spreads it, with a warning, if the month is unknown) and each RSU vest in the tax month of its vest date. Example: £40,000 salary plus a £30,000 bonus paid in month 9 costs about £2,845, against £3,411 on an annual basis.
+**Earnings periods.** Employee Class 1 is worked out per earnings period, using that period's published thresholds (2025/26 and 2026/27 monthly: primary threshold £1,048, UEL £4,189; weekly £242 / £967; fortnightly and four-weekly are 2× and 4× the weekly figures). A bonus counts in the period it is paid, and an RSU vest in the period it is processed. Directors normally have an annual earnings period. The tool spreads base pay evenly, puts a bonus in its payment month (or spreads it, with a warning, if the month is unknown) and each RSU vest in the tax month of its vest date. Example: £40,000 salary plus a £30,000 bonus paid in month 9 costs about £2,845, against £3,411 on an annual basis.
 
 **Class 4 (self-employed).** Charged on the year's profits: 6% between the lower profits limit (£12,570) and upper profits limit (£50,270), 2% above. Worked out independently of any Class 1. Not payable by someone over State Pension age at the start of the tax year. Class 2 is no longer payable: since April 2024 the self-employed get an NI credit above the small profits threshold without paying. Where employment earnings alone exceed the UEL and there are also profits, the annual maximum may cap the combined liability; the tool warns rather than applying it.
 

@@ -63,10 +63,10 @@ export interface FreeHoursConfig {
   /** Maximum ANI per parent — hard cliff edge */
   maximumANIThreshold: number;
   /**
-   * Household annual earned income limit for the benefits route into the
-   * 2-year-old extra-support entitlement (the Universal Credit route).
+   * Household income limit, after tax and not counting benefits, for the
+   * Universal Credit route into the 2-year-old extra-support entitlement.
    */
-  benefitsRouteEarnedIncomeLimit: number;
+  benefitsRouteIncomeLimit: number;
 }
 
 export interface TFCConfig {
@@ -155,9 +155,11 @@ export interface TaxYearConfig {
   employeeNICBands: NICBand[];
 
   /**
-   * Employee Class 1 thresholds per earnings period, as published by HMRC
-   * (they are rounded, so not simply the annual figures divided). The rates
-   * are those in employeeNICBands.
+   * Employee Class 1 thresholds per earnings period. Weekly and monthly are
+   * HMRC's published (rounded) figures, not the annual figures divided.
+   * Periods that are a multiple of weeks use the weekly figures multiplied by
+   * the number of weeks (HMRC CWG2), so fortnightly = 2 × weekly and
+   * four-weekly = 4 × weekly. The rates are those in employeeNICBands.
    */
   class1Periods: Record<PayFrequency, { primaryThreshold: number; upperEarningsLimit: number }>;
 
@@ -234,7 +236,10 @@ export interface ConfigSource {
   /** Config field(s) the source covers, e.g. "childBenefit" or "pension.annualAllowance" */
   field: string;
   url: string;
+  /** ISO date the figure was last checked against the source, or null if not yet */
   verifiedOn: string | null;
+  /** How it was checked, or any caveat (e.g. a figure borrowed from another year) */
+  note?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,33 +267,71 @@ export function minimumIncomeQuarterly(config: TaxYearConfig, band: MinimumIncom
   return Math.round(config.minimumWageByAgeBand[band] * config.minimumIncomeHoursPerWeek * 13 * 100) / 100;
 }
 
+const GOV = "https://www.gov.uk";
+const unverified = (field: string, url: string, note?: string): ConfigSource =>
+  note ? { field, url, verifiedOn: null, note } : { field, url, verifiedOn: null };
+
 /**
- * Sources for each group of figures. verifiedOn is null until someone checks
- * the figure against the source for that year and records the date.
+ * Sources for 2025/26. verifiedOn is null until someone checks the figure
+ * against the source and records the date.
  */
-function sourcesFor(): ConfigSource[] {
-  const unverified = (field: string, url: string): ConfigSource => ({ field, url, verifiedOn: null });
-  return [
-    unverified("personalAllowance, incomeTaxBands", "https://www.gov.uk/income-tax-rates"),
-    unverified("scottishIncomeTaxBands", "https://www.gov.uk/scottish-income-tax"),
-    unverified("employeeNICBands, employerNICRate", "https://www.gov.uk/national-insurance-rates-letters"),
-    unverified("class4NIC", "https://www.gov.uk/self-employed-national-insurance-rates"),
-    unverified("class1Periods", "https://www.gov.uk/guidance/rates-and-thresholds-for-employers-2026-to-2027"),
-    unverified("nationalMinimumWageHourly, minimumWageByAgeBand", "https://www.gov.uk/national-minimum-wage-rates"),
-    unverified("childBenefit", "https://www.gov.uk/child-benefit-rates"),
-    unverified("hicbc", "https://www.gov.uk/child-benefit-tax-charge"),
-    unverified("freeHours", "https://www.gov.uk/get-childcare"),
-    unverified("tfc", "https://www.gov.uk/tax-free-childcare"),
-    unverified("pension", "https://www.gov.uk/tax-on-your-private-pension/annual-allowance"),
-    unverified("evBiKRate", "https://www.gov.uk/calculate-tax-on-company-cars"),
-    unverified("isaAllowance", "https://www.gov.uk/individual-savings-accounts"),
-    unverified("personalSavingsAllowance, startingRateForSavingsBand", "https://www.gov.uk/apply-tax-free-interest-on-savings"),
-    unverified("dividendAllowance, dividendRates", "https://www.gov.uk/tax-on-dividends"),
-    unverified("rentalFinanceCostReliefRate", "https://www.gov.uk/guidance/changes-to-tax-relief-for-residential-landlords-how-its-worked-out-including-case-studies"),
-    unverified("cgtAnnualExemptAmount", "https://www.gov.uk/capital-gains-tax/allowances"),
-    unverified("defaultProviderHourlyRates", "https://www.gov.uk/government/collections/early-years-funding"),
-  ];
-}
+const SOURCES_2025_26: ConfigSource[] = [
+  unverified("personalAllowance, incomeTaxBands", `${GOV}/income-tax-rates`),
+  unverified("scottishIncomeTaxBands", "https://www.gov.scot/publications/scottish-income-tax-rates-and-bands/pages/proposed-rates-and-bands-2025-to-2026/"),
+  unverified("employeeNICBands, employerNICRate", `${GOV}/guidance/rates-and-thresholds-for-employers-2025-to-2026`),
+  unverified("class1Periods", `${GOV}/guidance/rates-and-thresholds-for-employers-2025-to-2026`),
+  unverified("class4NIC", `${GOV}/self-employed-national-insurance-rates`),
+  unverified("nationalMinimumWageHourly, minimumWageByAgeBand", `${GOV}/national-minimum-wage-rates`),
+  unverified("childBenefit", `${GOV}/government/publications/rates-and-allowances-tax-credits-child-benefit-and-guardians-allowance/tax-credits-child-benefit-and-guardians-allowance`),
+  unverified("hicbc", `${GOV}/child-benefit-tax-charge`),
+  unverified("freeHours", `${GOV}/free-childcare-if-working`),
+  unverified("freeHours.benefitsRouteIncomeLimit", `${GOV}/help-with-childcare-costs/free-childcare-2-year-olds-claim-benefits`),
+  unverified("tfc", `${GOV}/tax-free-childcare`),
+  unverified("pension", `${GOV}/tax-on-your-private-pension/annual-allowance`),
+  unverified("evBiKRate", `${GOV}/government/publications/income-tax-increasing-the-appropriate-percentage-for-company-cars/taxation-of-company-cars-the-appropriate-percentage-for-tax-years-2025-to-2026-2026-to-2027-and-2027-to-2028`),
+  unverified("isaAllowance", `${GOV}/individual-savings-accounts`),
+  unverified("personalSavingsAllowance, startingRateForSavingsBand", `${GOV}/apply-tax-free-interest-on-savings`),
+  unverified("dividendAllowance, dividendRates", `${GOV}/tax-on-dividends`),
+  unverified("rentalFinanceCostReliefRate", `${GOV}/guidance/changes-to-tax-relief-for-residential-landlords-how-its-worked-out-including-case-studies`),
+  unverified("cgtAnnualExemptAmount", `${GOV}/capital-gains-tax/allowances`),
+  unverified(
+    "defaultProviderHourlyRates",
+    `${GOV}/government/publications/early-years-funding-2026-to-2027/2026-to-2027-early-years-national-funding-formulae-technical-note`,
+    "2025/26 uses the 2026/27 national average funding rates as its fallback."
+  ),
+];
+
+const CHECKED_2026_09_26 = "2026-09-26";
+const VIA_SEARCH = "Checked against GOV.UK search results quoting this page; the page itself was not opened.";
+const verified = (field: string, url: string, note = VIA_SEARCH): ConfigSource =>
+  ({ field, url, verifiedOn: CHECKED_2026_09_26, note });
+
+/** Sources for 2026/27. */
+const SOURCES_2026_27: ConfigSource[] = [
+  verified("personalAllowance, basic rate limit", `${GOV}/government/publications/the-personal-allowance-and-basic-rate-limit-for-income-tax-and-certain-national-insurance-contributions-nics-thresholds-from-6-april-2026-to-5-apr`),
+  unverified("incomeTaxBands (additional rate threshold), personalAllowanceTaperStart/End", `${GOV}/income-tax-rates`),
+  verified("scottishIncomeTaxBands", "https://www.gov.scot/publications/scottish-income-tax-technical-factsheet/", "Checked against gov.scot search results quoting this page; the page itself was not opened."),
+  verified("employeeNICBands thresholds (primary threshold £12,570, UEL £50,270)", `${GOV}/guidance/rates-and-thresholds-for-employers-2026-to-2027`),
+  unverified("employeeNICBands rates (8% / 2%), employerNICRate", `${GOV}/guidance/rates-and-thresholds-for-employers-2026-to-2027`),
+  verified("class1Periods.weekly, class1Periods.monthly", `${GOV}/guidance/rates-and-thresholds-for-employers-2026-to-2027`),
+  unverified("class1Periods.fortnightly, class1Periods.four_weekly", `${GOV}/government/publications/cwg2-further-guide-to-paye-and-national-insurance-contributions/2026-to-2027-employer-further-guide-to-paye-and-national-insurance-contributions`, "2 × and 4 × the weekly thresholds, following the CWG2 method for multi-week pay periods; HMRC does not list these figures separately."),
+  verified("class4NIC", `${GOV}/self-employed-national-insurance-rates`),
+  verified("nationalMinimumWageHourly, minimumWageByAgeBand", `${GOV}/national-minimum-wage-rates`),
+  verified("freeHours.minimumIncomeThreshold, tfc.minimumIncomeThreshold (3-month amounts)", `${GOV}/tax-free-childcare/check-if-youre-eligible`),
+  verified("childBenefit", `${GOV}/child-benefit/what-youll-get`),
+  unverified("hicbc", `${GOV}/child-benefit-tax-charge`),
+  unverified("freeHours", `${GOV}/free-childcare-if-working`),
+  verified("freeHours.benefitsRouteIncomeLimit", `${GOV}/help-with-childcare-costs/free-childcare-2-year-olds-claim-benefits`),
+  unverified("tfc", `${GOV}/tax-free-childcare`),
+  unverified("pension", `${GOV}/tax-on-your-private-pension/annual-allowance`),
+  verified("evBiKRate", `${GOV}/government/publications/income-tax-increasing-the-appropriate-percentage-for-company-cars/taxation-of-company-cars-the-appropriate-percentage-for-tax-years-2025-to-2026-2026-to-2027-and-2027-to-2028`, "Search results confirmed the 1-point rise for 2026/27 (3% to 4% for zero-emission cars); the table itself was not opened."),
+  unverified("isaAllowance", `${GOV}/individual-savings-accounts`),
+  unverified("personalSavingsAllowance, startingRateForSavingsBand", `${GOV}/apply-tax-free-interest-on-savings`),
+  verified("dividendAllowance, dividendRates", `${GOV}/government/publications/changes-to-tax-rates-for-property-savings-dividend-income/changes-to-tax-rates-for-property-savings-dividend-income`),
+  unverified("rentalFinanceCostReliefRate", `${GOV}/guidance/changes-to-tax-relief-for-residential-landlords-how-its-worked-out-including-case-studies`),
+  unverified("cgtAnnualExemptAmount", `${GOV}/capital-gains-tax/allowances`),
+  verified("defaultProviderHourlyRates", `${GOV}/government/publications/early-years-funding-2026-to-2027/2026-to-2027-early-years-national-funding-formulae-technical-note`),
+];
 
 export const TAX_YEAR_2025_26: TaxYearConfig = {
   taxYear: "2025/26",
@@ -320,7 +363,7 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
   class1Periods: {
     weekly:      { primaryThreshold: 242,   upperEarningsLimit: 967 },
     fortnightly: { primaryThreshold: 484,   upperEarningsLimit: 1_934 },
-    four_weekly: { primaryThreshold: 967,   upperEarningsLimit: 3_867 },
+    four_weekly: { primaryThreshold: 968,   upperEarningsLimit: 3_868 },
     monthly:     { primaryThreshold: 1_048, upperEarningsLimit: 4_189 },
   },
 
@@ -350,7 +393,7 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
     minTermWeeksPerYear: 38,
     minimumIncomeThreshold: deriveMinimumIncome(12.21, MIN_INCOME_WEEKLY_HOURS),
     maximumANIThreshold: 100_000,
-    benefitsRouteEarnedIncomeLimit: 15_400,
+    benefitsRouteIncomeLimit: 15_400,
   },
 
   tfc: {
@@ -397,7 +440,7 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
   // uses the same fallback until its averages are added and verified.
   defaultProviderHourlyRates: { under2: 12.04, age2: 8.90, age3to4: 6.42 },
 
-  sources: sourcesFor(),
+  sources: SOURCES_2025_26,
 };
 
 // ---------------------------------------------------------------------------
@@ -440,7 +483,7 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
   class1Periods: {
     weekly:      { primaryThreshold: 242,   upperEarningsLimit: 967 },
     fortnightly: { primaryThreshold: 484,   upperEarningsLimit: 1_934 },
-    four_weekly: { primaryThreshold: 967,   upperEarningsLimit: 3_867 },
+    four_weekly: { primaryThreshold: 968,   upperEarningsLimit: 3_868 },
     monthly:     { primaryThreshold: 1_048, upperEarningsLimit: 4_189 },
   },
 
@@ -471,7 +514,7 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
     minTermWeeksPerYear: 38,
     minimumIncomeThreshold: deriveMinimumIncome(12.71, MIN_INCOME_WEEKLY_HOURS),
     maximumANIThreshold: 100_000,
-    benefitsRouteEarnedIncomeLimit: 15_400,
+    benefitsRouteIncomeLimit: 15_400,
   },
 
   tfc: {
@@ -518,7 +561,7 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
   // 2026/27 national average early years funding rates
   defaultProviderHourlyRates: { under2: 12.04, age2: 8.90, age3to4: 6.42 },
 
-  sources: sourcesFor(),
+  sources: SOURCES_2026_27,
 };
 
 // ---------------------------------------------------------------------------
