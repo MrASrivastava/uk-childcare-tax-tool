@@ -126,7 +126,7 @@ interface BiKResult {
   total: number;
 }
 
-function calculateBiK(parent: ParentIncome, config: TaxYearConfig): BiKResult {
+function calculateBiK(parent: ParentIncome): BiKResult {
   const { benefitsInKind } = parent;
 
   // Company car: P11D value × BiK%
@@ -179,7 +179,7 @@ export function calculateANI(
   const sacrifice = calculateSalarySacrifice(parent, config);
 
   // ---- Benefits in kind ------------------------------------------------
-  const bik = calculateBiK(parent, config);
+  const bik = calculateBiK(parent);
 
   // ---- RSU income ------------------------------------------------------
   const rsuIncome = calculateRSUTotal(parent, config);
@@ -315,7 +315,7 @@ export function calculateEmployeeNIC(
 ): { employmentIncomeForNIC: number; employeeNIC: number } {
   const sacrifice = calculateSalarySacrifice(parent, config);
   const startYear = taxYearStartYear(config.taxYear);
-  const bik = calculateBiK(parent, config);
+  const bik = calculateBiK(parent);
 
   // RSU gross values for NIC (not net of employer NIC transfer — see rules.md §6.4)
   const rsuGrossForNIC = parent.rsuVests

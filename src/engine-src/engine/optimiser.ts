@@ -79,8 +79,7 @@ function netGiftAidForANIReduction(aniReduction: number): number {
  */
 function nicSavingOnSacrifice(
   parent: ParentIncome,
-  additionalSacrificeAmount: number,
-  config: TaxYearConfig
+  additionalSacrificeAmount: number
 ): number {
   const UEL = 50_270;
   const PT = 12_570;
@@ -323,8 +322,7 @@ function buildPensionRecommendation(
   if (lever === "salary_sacrifice_pension") {
     nicSaving = nicSavingOnSacrifice(
       parent,
-      grossContributionNeeded,
-      config
+      grossContributionNeeded
     );
     localWarnings.push(
       "Salary sacrifice also saves employer NIC (15%). Check with your employer that the scheme can accommodate additional contributions."
@@ -440,7 +438,6 @@ function buildEVRecommendation(
   // and the employer offers an EV scheme. We can't validate this, but we can
   // check that the parent has no existing EV sacrifice at the required level.
   const existingEVSacrifice = parent.salarySacrifice.ev?.annualLeaseCost ?? 0;
-  const additionalSacrificeNeeded = aniReductionRequired; // lease cost needed
 
   // Estimate the lease cost needed to achieve the target ANI reduction.
   //
@@ -466,7 +463,7 @@ function buildEVRecommendation(
     return null; // NMW would be breached — don't recommend
   }
 
-  const nicSaving = nicSavingOnSacrifice(parent, estimatedLeaseNeeded, config);
+  const nicSaving = nicSavingOnSacrifice(parent, estimatedLeaseNeeded);
   // BiK adds back to ANI and creates a small income tax liability
   const biKTaxCost = estimatedBiK * 0.40; // At higher rate
 
@@ -507,8 +504,7 @@ function buildCycleToWorkRecommendation(
   parent: ParentIncome,
   aniReductionRequired: number,
   schemesRestored: string[],
-  annualBenefitRestored: number,
-  config: TaxYearConfig
+  annualBenefitRestored: number
 ): OptimisationRecommendation | null {
   // Cycle-to-work maximum is employer-scheme-dependent; typical max £5,000
   const MAX_CYCLE = 5_000;
@@ -516,7 +512,7 @@ function buildCycleToWorkRecommendation(
 
   if (wouldBreachNMW(parent, aniReductionRequired)) return null;
 
-  const nicSaving = nicSavingOnSacrifice(parent, aniReductionRequired, config);
+  const nicSaving = nicSavingOnSacrifice(parent, aniReductionRequired);
   const netAnnualGain = annualBenefitRestored + nicSaving; // Cycle reduces salary — actual cost is 0
 
   return {
@@ -621,7 +617,7 @@ function buildRedistributionRecommendation(
   higherParent: ParentIncome,
   lowerParentLabel: string,
   nonEmploymentIncome: number,
-  currentHigherANI: number,
+  _currentHigherANI: number,
   benefitIfMoved: number
 ): OptimisationRecommendation {
   return {
@@ -745,7 +741,7 @@ export function computeOptimisationRecommendations(
         if (evRec) recommendations.push(evRec);
 
         // Cycle-to-work if gap is small enough
-        const cycleRec = buildCycleToWorkRecommendation(parent, aniReductionRequired, schemesRestored, annualBenefitRestored, config);
+        const cycleRec = buildCycleToWorkRecommendation(parent, aniReductionRequired, schemesRestored, annualBenefitRestored);
         if (cycleRec) recommendations.push(cycleRec);
       }
     }
