@@ -15,7 +15,6 @@
 import { useState, useCallback, useMemo } from "react";
 import {
   ResponsiveContainer,
-  AreaChart,
   Area,
   XAxis,
   YAxis,
@@ -176,14 +175,6 @@ const fmt = (n: number) =>
     currency: "GBP",
     maximumFractionDigits: 0,
   }).format(n);
-
-const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
-
-const STATUS_COLOUR: Record<string, string> = {
-  eligible: "#16a34a",
-  at_risk: "#d97706",
-  not_eligible: "#dc2626",
-};
 
 const STATUS_ICON: Record<string, string> = {
   eligible: "✓",

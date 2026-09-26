@@ -26,9 +26,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Bundle with Vite directly (skips the `tsc -b` type-check step in `npm run build`).
       # --base makes asset URLs work under the /<repo>/ sub-path Pages serves from.
-      - run: npx vite build --base=/${{ github.event.repository.name }}/
+      - run: npm run build -- --base=/${{ github.event.repository.name }}/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

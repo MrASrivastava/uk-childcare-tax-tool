@@ -13,7 +13,6 @@ import type {
   CalculationResult,
   HouseholdSummary,
   IncomeTaxResult,
-  MarginalRateDataPoint,
   NICResult,
   PersonalAllowanceResult,
   PensionCapacity,
@@ -62,7 +61,6 @@ function buildPensionCapacity(
   }
 
   // Check tapered AA (simplified — full check requires employer contributions)
-  const ani = totalContributions; // Approximation
   const taperedAAApplies = false; // Would require employer contribution data to compute accurately
 
   return {
@@ -106,7 +104,7 @@ function buildPensionCapacity(
  * represents the marginal "cost" of crossing the threshold.
  */
 export function generateMarginalRateChart(
-  parent: import("../types/income").ParentIncome,
+  _parent: import("../types/income").ParentIncome,
   config: import("../types/constants").TaxYearConfig,
   grossChildBenefit: number,
   freeHoursIncrementalValue: number,
@@ -204,15 +202,6 @@ export function computeCrossoverANI(
 ): number | null {
   const CLIFF = 100_000;
   const STEP = 1_000;
-
-  // Find the total net deductions at the pre-cliff point (£99k)
-  // Net position at £99k ≈ take-home net of tax/NIC (no childcare loss)
-  // We track cumulative benefit position relative to the £99k baseline
-  let preCliffNetRate = 0;
-  const preCliffPoint = chartPoints.find(p => p.ani === 99_000);
-  if (preCliffPoint) {
-    preCliffNetRate = preCliffPoint.totalEffectiveMarginalRate;
-  }
 
   // Total benefits lost at the cliff
   const totalCliffLoss = freeHoursIncrementalValue + potentialTFCMaxTopUp;
@@ -509,10 +498,6 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
   );
 
   // ---- Marginal rate charts -----------------------------------------------
-  const hasFreeHoursEligibleChild = freeHoursChildren.some(
-    (c) => c.ageGroup !== "school_age_or_over" && c.ageGroup !== "under_9_months"
-  );
-
   const parentAMarginalChart = generateMarginalRateChart(
     inputs.parentA,
     config,
@@ -542,7 +527,7 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
   const AT_RISK_BUFFER_LOCAL = 5_000;
   const atRiskThresholds: AtRiskThreshold[] = [];
 
-  for (const { parentData, parentANI, parentLbl } of [
+  for (const { parentANI, parentLbl } of [
     { parentData: inputs.parentA, parentANI: parentAANI, parentLbl: "Parent A" },
     ...(inputs.parentB ? [{ parentData: inputs.parentB, parentANI: parentBANI!, parentLbl: "Parent B" }] : []),
   ]) {
