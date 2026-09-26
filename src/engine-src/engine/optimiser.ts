@@ -639,6 +639,7 @@ export function computeOptimisationRecommendations(
             `support. A bonus, RSU vest, or savings interest increase could push income over. ` +
             `An extra ${fmt(buffer)} gross pension contribution would restore a ${fmt(BUFFER_MARGIN)} ` +
             `margin. ` + rec.leverDescription,
+          aniReductionRequired: 0,
           annualBenefitRestored: valueAtRisk,
           warnings: [
             `Only ${fmt(gapToCliff)} of headroom. Any variable income could trigger the cliff.`,

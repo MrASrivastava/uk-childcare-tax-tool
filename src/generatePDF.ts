@@ -766,7 +766,7 @@ function drawSchemes(d: Doc, r: CalculationResult) {
   d.sectionHeading("30-Hour Free Childcare");
   d.para(
     `Working parents can receive up to 30 hours/week of funded childcare during term time (38 weeks/year). ` +
-    `Both parents must individually earn between ${GBP}10,158 and ${GBP}100,000 ANI. Losing this entitlement ` +
+    `Both parents must each expect to earn at least 16 hours/week at the minimum wage over the next 3 months, and neither can have ANI over ${GBP}100,000. Losing this entitlement ` +
     `because one parent earns ${GBP}1 over ${GBP}100k is one of the most costly tax cliff edges in the UK.`,
     MUTED
   );
@@ -936,8 +936,9 @@ function drawOptimise(d: Doc, r: CalculationResult) {
     return;
   }
 
-  const restorative = recs.filter(r => r.aniReductionRequired > 0);
-  const proactive   = recs.filter(r => r.aniReductionRequired === 0);
+  const isProtective = (r: (typeof recs)[number]) => r.kind === "protective" || r.aniReductionRequired === 0;
+  const restorative = recs.filter(r => !isProtective(r));
+  const proactive   = recs.filter(isProtective);
 
   const drawGroup = (group: typeof recs, heading: string) => {
     if (group.length === 0) return;
@@ -982,7 +983,7 @@ function drawOptimise(d: Doc, r: CalculationResult) {
       d.pdf.setTextColor(...NAVY);
       d.pdf.text(safe(LEVER_NAMES[rec.lever] ?? rec.lever), ML + 6, d.y + 14);
 
-      const actionTxt = rec.aniReductionRequired > 0
+      const actionTxt = !isProtective(rec)
         ? safe(`Contribute ${fmtGBP(rec.actionRequired)} ${rec.actionUnit}  |  ANI reduces by ${fmtGBP(rec.aniReductionRequired)}`)
         : "Protect existing eligibility";
       d.pdf.setFont("helvetica", "normal");
@@ -998,14 +999,14 @@ function drawOptimise(d: Doc, r: CalculationResult) {
       d.pdf.setFontSize(14);
       const gainColor: [number,number,number] = rec.netAnnualGain >= 0 ? GREEN : RED;
       d.pdf.setTextColor(...gainColor);
-      const gainTxt = rec.aniReductionRequired > 0
+      const gainTxt = !isProtective(rec)
         ? (rec.netAnnualGain >= 0 ? "+" : "") + fmtGBP(rec.netAnnualGain)
         : fmtGBP(rec.annualBenefitRestored);
       d.pdf.text(gainTxt, PAGE_W - ML - 4, d.y + 13, { align: "right" });
       d.pdf.setFont("helvetica", "normal");
       d.pdf.setFontSize(7);
       d.pdf.setTextColor(...MUTED);
-      d.pdf.text(rec.aniReductionRequired > 0 ? "net / year" : "protected / year", PAGE_W - ML - 4, d.y + 19, { align: "right" });
+      d.pdf.text(!isProtective(rec) ? "net / year" : "protected / year", PAGE_W - ML - 4, d.y + 19, { align: "right" });
 
       d.y += 42;
 
