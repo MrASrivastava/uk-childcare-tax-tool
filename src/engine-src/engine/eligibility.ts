@@ -353,7 +353,8 @@ function termHours(
   ageGroup: FreeHoursAgeGroup,
   householdWorkingEligible: boolean,
   config: TaxYearConfig,
-  rates: { under2: number; age2: number; age3to4: number }
+  rates: { under2: number; age2: number; age3to4: number },
+  twoYearOldExtraSupport = false
 ): { receivedHours: number; universalHours: number; incrementalHours: number; hourlyRate: number } {
   const working = config.freeHours.workingParentHoursPerWeek;
   const universal = config.freeHours.universalHoursPerWeek;
@@ -361,7 +362,16 @@ function termHours(
     case "9m_to_2yr":
       return { receivedHours: householdWorkingEligible ? working : 0, universalHours: 0, incrementalHours: working, hourlyRate: rates.under2 };
     case "age_2yr":
-      return { receivedHours: householdWorkingEligible ? working : 0, universalHours: 0, incrementalHours: working, hourlyRate: rates.age2 };
+      // A 2-year-old with extra support gets 15 hours whatever the parents
+      // earn; with working-parent entitlement too, the total is 30, not 45.
+      return twoYearOldExtraSupport
+        ? {
+            receivedHours: householdWorkingEligible ? working : universal,
+            universalHours: universal,
+            incrementalHours: working - universal,
+            hourlyRate: rates.age2,
+          }
+        : { receivedHours: householdWorkingEligible ? working : 0, universalHours: 0, incrementalHours: working, hourlyRate: rates.age2 };
     case "age_3_to_4yr":
       return {
         receivedHours: householdWorkingEligible ? working : universal,
@@ -373,6 +383,13 @@ function termHours(
       return { receivedHours: 0, universalHours: 0, incrementalHours: 0, hourlyRate: 0 };
   }
 }
+
+const EXTRA_SUPPORT_LABELS: Record<NonNullable<ChildInfo["twoYearOldExtraSupport"]>, string> = {
+  dla: "gets Disability Living Allowance",
+  ehc_plan: "has an education, health and care plan",
+  looked_after_or_left_care: "looked after, or left care through adoption, special guardianship or a child arrangements order",
+  benefits_route: "family gets qualifying benefits",
+};
 
 /**
  * computeFreeHoursForChild
@@ -404,6 +421,7 @@ export function computeFreeHoursForChild(
 ): FreeHoursChildResult {
   const { ageGroup, eligibilityStartDate, inGracePeriodZone } =
     getChildAgeGroup(child, referenceDate);
+  const extraSupport = Boolean(child.twoYearOldExtraSupport);
 
   const workingHrs = config.freeHours.workingParentHoursPerWeek; // 30
   const universalHrs = config.freeHours.universalHoursPerWeek;   // 15
@@ -461,23 +479,38 @@ export function computeFreeHoursForChild(
       break;
 
     case "age_2yr":
-      universalEligibilityFlag = mkFlag(
-        "not_eligible",
-        "The 15-hour universal entitlement for 2-year-olds applies only to disadvantaged " +
-        "families (those receiving qualifying benefits). Not modelled in this tool.",
-        0
-      );
+      if (extraSupport) {
+        universalHoursPerWeek = universalHrs;
+        universalEligibilityFlag = mkFlag(
+          "eligible",
+          `${universalHrs} hours/week for 2-year-olds who get extra support ` +
+          `(${EXTRA_SUPPORT_LABELS[child.twoYearOldExtraSupport!]}). This does not depend on parental income.`,
+          0
+        );
+      } else {
+        universalEligibilityFlag = mkFlag(
+          "not_eligible",
+          "No income-independent hours for this 2-year-old. 15 hours are available to 2-year-olds who " +
+          "get Disability Living Allowance, have an EHC plan, are looked after or have left care, or whose " +
+          "family gets certain benefits.",
+          0
+        );
+      }
       if (householdWorkingEligible) {
         workingParentHoursPerWeek = workingHrs;
         workingEligibilityFlag = mkFlag(
           "eligible",
-          `${workingHrs} hours/week working parent entitlement.`,
+          `${workingHrs} hours/week working parent entitlement` +
+          (extraSupport ? ` (including the ${universalHrs} extra-support hours, not in addition to them).` : "."),
           0
         );
       } else {
+        workingParentHoursPerWeek = universalHoursPerWeek;
         workingEligibilityFlag = mkFlag(
           "not_eligible",
-          "Working parent conditions not met. No funded hours for this 2-year-old.",
+          extraSupport
+            ? `Working parent conditions not met. Only the ${universalHrs} extra-support hours apply.`
+            : "Working parent conditions not met. No funded hours for this 2-year-old.",
           0
         );
       }
@@ -543,7 +576,7 @@ export function computeFreeHoursForChild(
   let incrementalWorkingParentValue = 0;
   for (const termStart of taxYearTermStarts(config)) {
     const group = getChildAgeGroup(child, termStart).ageGroup;
-    const t = termHours(group, householdWorkingEligible, config, localRates);
+    const t = termHours(group, householdWorkingEligible, config, localRates, extraSupport);
     workingParentAnnualValue += t.receivedHours * weeksPerTerm * t.hourlyRate;
     universalAnnualValue += t.universalHours * weeksPerTerm * t.hourlyRate;
     incrementalWorkingParentValue += t.incrementalHours * weeksPerTerm * t.hourlyRate;
@@ -552,7 +585,7 @@ export function computeFreeHoursForChild(
   // incrementalWorkingParentHours: the POTENTIAL extra hours from working
   // parent status at the reference date, whether or not the household
   // currently qualifies (so the cliff can be valued). rules.md §2.2.4 and §9.5.
-  const incrementalWorkingParentHours = termHours(ageGroup, true, config, localRates).incrementalHours;
+  const incrementalWorkingParentHours = termHours(ageGroup, true, config, localRates, extraSupport).incrementalHours;
 
   return {
     childIndex,

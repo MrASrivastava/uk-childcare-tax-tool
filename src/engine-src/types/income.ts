@@ -507,6 +507,14 @@ export interface ChildInfo {
    * hours then run until compulsory school age instead.
    */
   deferredReception?: boolean;
+
+  /**
+   * Route by which a 2-year-old qualifies for the 15 hours of extra-support
+   * funded childcare, if any. The first three are not income-tested; the
+   * benefits route has a low earned-income limit and is ignored (with a
+   * warning) if the parents earn above it. rules.md §2.2.2.
+   */
+  twoYearOldExtraSupport?: "dla" | "ehc_plan" | "looked_after_or_left_care" | "benefits_route" | null;
 }
 
 // ---------------------------------------------------------------------------

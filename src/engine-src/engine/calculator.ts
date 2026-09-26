@@ -378,7 +378,25 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   // ---- Step 6: Free hours per child ----------------------------------------
-  const freeHoursChildren = inputs.children.map((child, i) =>
+  // The benefits route into the 2-year-old extra-support hours is income
+  // tested; ignore it (with a warning) when the household clearly earns more.
+  const earned = (p: typeof inputs.parentA) =>
+    calculateSalarySacrifice(p, config).postSacrificeSalary + p.bonus.expectedThisYear +
+    p.cashAllowances + p.selfEmploymentProfit;
+  const householdEarned = earned(inputs.parentA) + (inputs.parentB ? earned(inputs.parentB) : 0);
+  const childrenForHours = inputs.children.map((child, i) => {
+    if (child.twoYearOldExtraSupport === "benefits_route" && householdEarned > config.freeHours.benefitsRouteEarnedIncomeLimit) {
+      warnings.push(
+        `Child ${i + 1}: the benefits route to 15 hours for 2-year-olds has an earned income limit of ` +
+        `£${config.freeHours.benefitsRouteEarnedIncomeLimit.toLocaleString("en-GB")} a year, which this household is above. ` +
+        "It has been ignored."
+      );
+      return { ...child, twoYearOldExtraSupport: null };
+    }
+    return child;
+  });
+
+  const freeHoursChildren = childrenForHours.map((child, i) =>
     computeFreeHoursForChild(
       child,
       i,

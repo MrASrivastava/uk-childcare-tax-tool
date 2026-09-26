@@ -946,10 +946,8 @@ function ChildrenForm({
         Children
       </div>
       {children.map((child, i) => (
-        <div
-          key={i}
-          style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 8 }}
-        >
+        <div key={i}>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 8 }}>
           <div style={{ flex: 1 }}>
             <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 2 }}>
               Child {i + 1} — date of birth
@@ -1004,6 +1002,31 @@ function ChildrenForm({
           >
             ✕
           </button>
+        </div>
+        <div style={{ marginTop: -2, marginBottom: 10 }}>
+          <SelectField
+            label="Extra support at age 2"
+            tooltip={TT.twoYearOldExtraSupport}
+            value={child.twoYearOldExtraSupport ?? ""}
+            onChange={(v) => {
+              const n = [...children];
+              n[i] = { ...child, twoYearOldExtraSupport: (v || null) as ChildInfo["twoYearOldExtraSupport"] };
+              onChange(n);
+            }}
+            options={[
+              ["", "None"],
+              ["dla", "Gets Disability Living Allowance"],
+              ["ehc_plan", "Has an EHC plan"],
+              ["looked_after_or_left_care", "Looked after, or left care"],
+              ["benefits_route", "Family gets qualifying benefits"],
+            ]}
+          />
+          {child.isDisabled && !child.twoYearOldExtraSupport && (
+            <div style={{ fontSize: 11, color: "#b45309", marginTop: -6 }}>
+              Does your child get DLA or have an EHC plan? They may qualify for 15 funded hours at age 2 regardless of income.
+            </div>
+          )}
+        </div>
         </div>
       ))}
       <button

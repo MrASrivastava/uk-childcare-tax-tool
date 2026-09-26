@@ -218,8 +218,16 @@ The same term-start rule applies for the 2-year-old and 3-year-old milestones.
 | Child's age | All families (disadvantaged only for 2yr) | Working parent eligible families |
 |---|---|---|
 | 9 months – 2 years (i.e. under 2) | 0 hours | **30 hours/week (term-time)** |
-| 2 years (exactly) | 15 hours/week (disadvantaged only) | **30 hours/week (term-time)** |
+| 2 years | 15 hours/week if the child gets extra support (see below) | **30 hours/week (term-time)** |
 | 3 years – school age | **15 hours/week (universal, all families)** | **30 hours/week (term-time)** |
+
+**2-year-olds with extra support.** A 2-year-old gets 15 hours a week, 38 weeks a year, from the term after they turn 2 and qualify until the term after they turn 3 (when the universal offer takes over), if the child:
+- gets Disability Living Allowance;
+- has an education, health and care (EHC) plan;
+- is looked after by a local authority, or has left care through adoption, a special guardianship order or a child arrangements order; or
+- is in a family getting certain benefits (the benefits route: for Universal Credit, household earned income of £15,400 a year or less).
+
+The first three are not income-tested, so those children keep 15 hours above the £100,000 cliff, and only 15 hours (not 30) are lost there. If the child also qualifies for the working-parent entitlement, the two combine to 30 hours, not 45. The tool ignores the benefits route, with a warning, when household earnings are above its limit. The TFC disability test (DLA, PIP or blind) is not the same, so the tool asks separately rather than inferring it.
 
 **Term-time definition:** 38 weeks per year minimum; maximum 52 weeks depending on provider. The statutory entitlement is **570 hours per year** (30 hours × 38 weeks = 1,140 hours capped at 570 for the base universal entitlement, 1,140 for the full working parent entitlement). Providers may stretch the hours across more weeks at fewer hours per week.
 

@@ -66,7 +66,7 @@ describe("N2 — Annual Allowance", () => {
 });
 
 describe("N6 — 2-year-olds with extra support", () => {
-  it.fails("a 2-year-old on DLA keeps 15 hours above the cliff", () => {
+  it("a 2-year-old on DLA keeps 15 hours above the cliff", () => {
     const inputs = household({
       parentA: parent(105_000),
       parentB: parent(40_000, {}, "Parent B"),

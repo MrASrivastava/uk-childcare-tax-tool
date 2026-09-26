@@ -62,6 +62,11 @@ export interface FreeHoursConfig {
   minimumIncomeThreshold: number;
   /** Maximum ANI per parent — hard cliff edge */
   maximumANIThreshold: number;
+  /**
+   * Household annual earned income limit for the benefits route into the
+   * 2-year-old extra-support entitlement (the Universal Credit route).
+   */
+  benefitsRouteEarnedIncomeLimit: number;
 }
 
 export interface TFCConfig {
@@ -345,6 +350,7 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
     minTermWeeksPerYear: 38,
     minimumIncomeThreshold: deriveMinimumIncome(12.21, MIN_INCOME_WEEKLY_HOURS),
     maximumANIThreshold: 100_000,
+    benefitsRouteEarnedIncomeLimit: 15_400,
   },
 
   tfc: {
@@ -465,6 +471,7 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
     minTermWeeksPerYear: 38,
     minimumIncomeThreshold: deriveMinimumIncome(12.71, MIN_INCOME_WEEKLY_HOURS),
     maximumANIThreshold: 100_000,
+    benefitsRouteEarnedIncomeLimit: 15_400,
   },
 
   tfc: {
