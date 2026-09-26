@@ -365,6 +365,8 @@ export function calculateEmployeeNIC(
 // Income tax calculation
 // ---------------------------------------------------------------------------
 
+type TaxBandRow = { bandName: string; taxableIncome: number; rate: number; taxCharged: number };
+
 /**
  * calculateIncomeTax
  *
@@ -377,42 +379,122 @@ export function calculateEmployeeNIC(
  * is given by extending the band thresholds above the basic rate by the gross
  * contribution. rules.md §4.2 and §4.3.
  *
- * Applies England/Wales/NI rates unless scotlandResident is true.
+ * Income is taxed in the statutory order (rules.md §5.4):
+ *   1. Non-savings income — Scottish bands if scotlandResident, else UK bands
+ *   2. Savings interest   — UK bands, starting rate for savings, Personal Savings Allowance
+ *   3. Dividends          — UK bands at dividend rates, after the Dividend Allowance
+ * The personal allowance is set against non-savings income first.
+ * Savings and dividends use the UK bands even for Scottish taxpayers.
+ *
+ * Rental finance costs (mortgage interest) are not deductible; they give a
+ * basic-rate tax reduction instead (rules.md §1.2 Step 1).
  */
 export function calculateIncomeTax(
   aniBreakdown: ANIBreakdown,
   effectivePA: number,
   parent: ParentIncome,
   config: TaxYearConfig
-): { taxableIncome: number; totalIncomeTax: number; bands: Array<{ bandName: string; taxableIncome: number; rate: number; taxCharged: number }> } {
+): { taxableIncome: number; totalIncomeTax: number; bands: TaxBandRow[]; taxReductions: number } {
   const bandExtension = aniBreakdown.step2GiftAidDeduction + aniBreakdown.step3PensionDeduction;
-  const taxableIncome = Math.max(aniBreakdown.step1NetIncome - effectivePA, 0);
 
-  const bands = extendBands(
-    parent.scotlandResident
-      ? config.scottishIncomeTaxBands.map((b) => ({ bandName: b.name, from: b.from, to: b.to, rate: b.rate }))
-      : config.incomeTaxBands.map((b, i) => ({
-          bandName: i === 0 ? "basic" : i === 1 ? "higher" : "additional",
-          from: b.from,
-          to: b.to,
-          rate: b.rate,
-        })),
+  const savings = Math.max(parent.savingsInterestNonISA, 0);
+  const dividends = Math.max(parent.dividendsNonISA, 0);
+  const nonSavings = aniBreakdown.step1NetIncome - savings - dividends;
+
+  // Personal allowance: non-savings first, then savings, then dividends
+  let paLeft = effectivePA;
+  const taxableNonSavings = Math.max(nonSavings - paLeft, 0);
+  paLeft = Math.max(paLeft - nonSavings, 0);
+  const taxableSavings = Math.max(savings - paLeft, 0);
+  paLeft = Math.max(paLeft - savings, 0);
+  const taxableDividends = Math.max(dividends - paLeft, 0);
+  const taxableIncome = taxableNonSavings + taxableSavings + taxableDividends;
+
+  const ukBands = extendBands(
+    config.incomeTaxBands.map((b, i) => ({
+      bandName: i === 0 ? "basic" : i === 1 ? "higher" : "additional",
+      from: b.from,
+      to: b.to,
+      rate: b.rate,
+    })),
     bandExtension,
-    parent.scotlandResident ? 1 : 0
+    0
+  );
+  const nonSavingsBands = parent.scotlandResident
+    ? extendBands(
+        config.scottishIncomeTaxBands.map((b) => ({ bandName: b.name, from: b.from, to: b.to, rate: b.rate })),
+        bandExtension,
+        1
+      )
+    : ukBands;
+
+  const rows: TaxBandRow[] = [];
+
+  // Charge `amount` of income stacked from `start` against `bands`, using
+  // `rateFor(bandIndex)` for the rate.
+  const charge = (
+    start: number,
+    amount: number,
+    prefix: string,
+    bands: typeof ukBands,
+    rateFor: (i: number) => number
+  ) => {
+    const end = start + amount;
+    bands.forEach((band, i) => {
+      const inBand = Math.max(Math.min(end, band.to) - Math.max(start, band.from), 0);
+      if (inBand <= 0) return;
+      const rate = rateFor(i);
+      rows.push({ bandName: prefix + band.bandName, taxableIncome: inBand, rate, taxCharged: inBand * rate });
+    });
+  };
+  const nilRate = (amount: number, bandName: string) => {
+    if (amount > 0) rows.push({ bandName, taxableIncome: amount, rate: 0, taxCharged: 0 });
+  };
+
+  // 1. Non-savings income
+  charge(0, taxableNonSavings, "", nonSavingsBands, (i) => nonSavingsBands[i].rate);
+  let position = taxableNonSavings;
+
+  // 2. Savings income
+  const basicRateLimit = ukBands[0].to;
+  const additionalRateThreshold = ukBands[ukBands.length - 1].from;
+  const psa =
+    taxableIncome > additionalRateThreshold
+      ? config.personalSavingsAllowance.additionalRate
+      : taxableIncome > basicRateLimit
+      ? config.personalSavingsAllowance.higherRate
+      : config.personalSavingsAllowance.basicRate;
+
+  let savingsLeft = taxableSavings;
+  const startingRate = Math.min(Math.max(config.startingRateForSavingsBand - position, 0), savingsLeft);
+  nilRate(startingRate, "savings starting rate");
+  position += startingRate;
+  savingsLeft -= startingRate;
+  const psaUsed = Math.min(psa, savingsLeft);
+  nilRate(psaUsed, "personal savings allowance");
+  position += psaUsed;
+  savingsLeft -= psaUsed;
+  charge(position, savingsLeft, "savings ", ukBands, (i) => ukBands[i].rate);
+  position += savingsLeft;
+
+  // 3. Dividend income
+  const dividendAllowanceUsed = Math.min(config.dividendAllowance, taxableDividends);
+  nilRate(dividendAllowanceUsed, "dividend allowance");
+  position += dividendAllowanceUsed;
+  const dividendRates = [config.dividendRates.basic, config.dividendRates.higher, config.dividendRates.additional];
+  charge(position, taxableDividends - dividendAllowanceUsed, "dividend ", ukBands, (i) => dividendRates[i]);
+
+  const grossTax = rows.reduce((sum, r) => sum + r.taxCharged, 0);
+
+  // Rental finance cost reducer: 20% of the lower of finance costs and rental profit
+  const financeCosts = Math.max(parent.rentalFinanceCosts ?? 0, 0);
+  const taxReductions = Math.min(
+    config.rentalFinanceCostReliefRate *
+      Math.min(financeCosts, Math.max(parent.rentalIncomeNet, 0)),
+    grossTax
   );
 
-  const taxedBands: Array<{ bandName: string; taxableIncome: number; rate: number; taxCharged: number }> = [];
-  let totalIncomeTax = 0;
-
-  for (const band of bands) {
-    const inBand = Math.max(Math.min(taxableIncome, band.to) - band.from, 0);
-    if (inBand <= 0) continue;
-    const charged = inBand * band.rate;
-    taxedBands.push({ bandName: band.bandName, taxableIncome: inBand, rate: band.rate, taxCharged: charged });
-    totalIncomeTax += charged;
-  }
-
-  return { taxableIncome, totalIncomeTax, bands: taxedBands };
+  return { taxableIncome, totalIncomeTax: grossTax - taxReductions, bands: rows, taxReductions };
 }
 
 /**

@@ -127,6 +127,8 @@ export interface IncomeTaxResult {
   personalAllowance: number;
   bands: TaxBandResult[];
   totalIncomeTax: number;
+  /** Tax reductions applied after the band calculation (rental finance costs) */
+  taxReductions: number;
   /** Whether Scottish rates were applied */
   scottishRatesApplied: boolean;
 }

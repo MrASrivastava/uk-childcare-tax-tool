@@ -149,6 +149,15 @@ export interface TaxYearConfig {
   /** Annual dividend allowance */
   dividendAllowance: number;
 
+  /** Dividend tax rates by UK band (dividends always use UK bands, including in Scotland) */
+  dividendRates: { basic: number; higher: number; additional: number };
+
+  /** Width of the 0% starting rate band for savings (reduced by taxable non-savings income) */
+  startingRateForSavingsBand: number;
+
+  /** Rate of the tax reduction for residential rental finance costs */
+  rentalFinanceCostReliefRate: number;
+
   /** Annual CGT exempt amount */
   cgtAnnualExemptAmount: number;
 }
@@ -246,6 +255,9 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
   },
 
   dividendAllowance: 500,
+  dividendRates: { basic: 0.0875, higher: 0.3375, additional: 0.3935 },
+  startingRateForSavingsBand: 5_000,
+  rentalFinanceCostReliefRate: 0.20,
   cgtAnnualExemptAmount: 3_000,
 };
 
@@ -265,6 +277,21 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
 
   // EV BiK rises to 4% in 2026/27
   evBiKRate: 0.04,
+
+  // Scottish starter and basic thresholds rose 7.4% (to £16,537 and £29,526
+  // gross); higher, advanced and top thresholds are frozen. Bands are
+  // expressed as taxable income after the £12,570 personal allowance.
+  scottishIncomeTaxBands: [
+    { name: "starter",      from: 0,       to: 3_967,   rate: 0.19 },
+    { name: "basic",        from: 3_967,   to: 16_956,  rate: 0.20 },
+    { name: "intermediate", from: 16_956,  to: 31_092,  rate: 0.21 },
+    { name: "higher",       from: 31_092,  to: 62_430,  rate: 0.42 },
+    { name: "advanced",     from: 62_430,  to: 125_140, rate: 0.45 },
+    { name: "top",          from: 125_140, to: Infinity, rate: 0.48 },
+  ],
+
+  // Dividend ordinary and upper rates rise by 2 percentage points from April 2026
+  dividendRates: { basic: 0.1075, higher: 0.3575, additional: 0.3935 },
 
   // NMW expected to rise — update when confirmed. Using 2025/26 as placeholder.
   // freeHours.minimumIncomeThreshold will inherit from spread but override here

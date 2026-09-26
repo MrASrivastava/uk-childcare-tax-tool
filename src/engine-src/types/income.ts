@@ -269,11 +269,18 @@ export interface ParentIncome {
   selfEmploymentProfit: number;
 
   /**
-   * Net rental income (gross rent minus allowable expenses).
-   * Note: mortgage interest relief is restricted since April 2020 — basic rate credit only.
-   * The tool takes net rental profit as an input and adds it to ANI.
+   * Rental profit: gross rent minus allowable expenses, BEFORE mortgage interest
+   * and other finance costs. Since April 2020 none of the finance cost on
+   * residential property is deductible from rental income, so it does not
+   * reduce ANI. Enter finance costs separately in rentalFinanceCosts.
    */
   rentalIncomeNet: number;
+
+  /**
+   * Residential mortgage interest and other finance costs on let property.
+   * Not deducted from income or ANI; gives a 20% tax reduction instead.
+   */
+  rentalFinanceCosts?: number;
 
   /**
    * Non-ISA savings interest (gross amount).
@@ -474,6 +481,7 @@ export function createEmptyParentIncome(label: string): ParentIncome {
     cashAllowances: 0,
     selfEmploymentProfit: 0,
     rentalIncomeNet: 0,
+    rentalFinanceCosts: 0,
     savingsInterestNonISA: 0,
     dividendsNonISA: 0,
     pensionIncomeGross: 0,

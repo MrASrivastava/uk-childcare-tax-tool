@@ -295,6 +295,7 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
     personalAllowance: parentAPA,
     bands: parentAITCalc.bands,
     totalIncomeTax: parentAITCalc.totalIncomeTax,
+    taxReductions: parentAITCalc.taxReductions,
     scottishRatesApplied: inputs.parentA.scotlandResident,
   };
 
@@ -322,6 +323,7 @@ export function calculate(inputs: HouseholdInputs): CalculationResult {
           personalAllowance: parentBPA,
           bands: calc.bands,
           totalIncomeTax: calc.totalIncomeTax,
+          taxReductions: calc.taxReductions,
           scottishRatesApplied: inputs.parentB.scotlandResident,
         };
       })()
