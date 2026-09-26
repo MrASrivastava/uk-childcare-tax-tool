@@ -15,7 +15,7 @@
  * Internally, we preserve full precision to avoid compounding rounding errors.
  */
 
-import type { ParentIncome, RSUVest } from "../types/income";
+import type { OtherSacrifice, ParentIncome, RSUVest } from "../types/income";
 import type { ANIBreakdown } from "../types/output";
 import type { TaxYearConfig } from "../types/constants";
 
@@ -84,33 +84,84 @@ export function calculateRSUANIAmount(vest: RSUVest, employerNICRate: number): n
 // ---------------------------------------------------------------------------
 
 interface SalarySacrificeResult {
+  /** Total salary given up: reduces cash pay and the Class 1 NIC base */
   totalSacrifice: number;
   pension: number;
   ev: number;
-  evBiKIncome: number;    // BiK income added back for the EV (adds to gross income, not sacrifice)
+  /** Taxable value of the EV added back to employment income (BiK, or the OpRA value) */
+  evBiKIncome: number;
   cycleToWork: number;
+  /** Salary given up under "other" sacrifices (all kinds, including legacy `other`) */
   other: number;
+  /** Taxable value of OpRA benefits added back to employment income */
+  opraTaxableValue: number;
+  /** Sacrifice on which the employer saves Class 1 NIC (excludes OpRA items) */
+  employerNICSavingBase: number;
   postSacrificeSalary: number;
+  warnings: string[];
 }
 
-function calculateSalarySacrifice(
+/** CO2 at or below which a car is excluded from the OpRA rules (g/km) */
+const OPRA_CAR_CO2_LIMIT = 75;
+
+/**
+ * Salary sacrifice for one parent, applying the optional remuneration (OpRA)
+ * rules (ITEPA 2003 s.69A): a sacrifice only reduces taxable pay and ANI
+ * where the rules allow it. Exported for the minimum income test, NMW check
+ * and employer NIC saving, which all need the same figures.
+ */
+export function calculateSalarySacrifice(
   parent: ParentIncome,
   config: TaxYearConfig
 ): SalarySacrificeResult {
   const { salarySacrifice, grossSalary } = parent;
+  const warnings: string[] = [];
 
   const pension = salarySacrifice.pension;
   const cycleToWork = salarySacrifice.cycleToWork;
-  const other = salarySacrifice.other;
 
-  // EV salary sacrifice: the lease cost reduces gross salary, but a BiK is added back
-  // rules.md §4.4: net ANI reduction = lease cost − (P11D × BiK rate)
+  // EV salary sacrifice: the lease cost reduces gross salary, and the car's
+  // taxable value is added back. For a car at 75g/km or less that is the BiK
+  // (rules.md §4.4). Above 75g/km OpRA applies: the higher of lease and BiK.
   let evLeaseSacrifice = 0;
   let evBiKIncome = 0;
+  let evExempt = true;
   if (salarySacrifice.ev !== null) {
     evLeaseSacrifice = salarySacrifice.ev.annualLeaseCost;
     const biKRate = salarySacrifice.ev.biKRateOverride ?? config.evBiKRate;
-    evBiKIncome = salarySacrifice.ev.vehicleP11DValue * biKRate;
+    const bik = salarySacrifice.ev.vehicleP11DValue * biKRate;
+    evExempt = (salarySacrifice.ev.co2GramsPerKm ?? 0) <= OPRA_CAR_CO2_LIMIT;
+    evBiKIncome = evExempt ? bik : Math.max(evLeaseSacrifice, bik);
+    if (!evExempt) {
+      warnings.push(
+        `${parent.label}'s car emits more than ${OPRA_CAR_CO2_LIMIT}g/km CO2, so the optional remuneration rules apply: ` +
+        "its taxable value is the higher of the salary given up and the benefit in kind, and the sacrifice does not reduce ANI."
+      );
+    }
+  }
+
+  // Other sacrifices, typed by their OpRA treatment. A legacy bare `other`
+  // amount is treated as an OpRA benefit worth the salary given up, so it
+  // can't wrongly reduce ANI.
+  const items: OtherSacrifice[] = [...(salarySacrifice.otherItems ?? [])];
+  if (salarySacrifice.other > 0) {
+    items.push({ kind: "opra_benefit", label: "Other (legacy)", salaryForgone: salarySacrifice.other, normalBenefitValue: salarySacrifice.other });
+    warnings.push(
+      `${parent.label}: salarySacrifice.other is deprecated. It has been treated as a benefit worth the salary given up, ` +
+      "so it does not reduce ANI. Use salarySacrifice.otherItems to say whether it is a pay reduction or a benefit."
+    );
+  }
+  let other = 0;
+  let opraTaxableValue = 0;
+  let employerNICOther = 0;
+  for (const item of items) {
+    if (item.kind === "opra_benefit") {
+      other += item.salaryForgone;
+      opraTaxableValue += Math.max(item.salaryForgone, item.normalBenefitValue);
+    } else {
+      other += item.amount;
+      employerNICOther += item.amount;
+    }
   }
 
   const totalSacrifice = pension + evLeaseSacrifice + cycleToWork + other;
@@ -123,7 +174,10 @@ function calculateSalarySacrifice(
     evBiKIncome,
     cycleToWork,
     other,
+    opraTaxableValue,
+    employerNICSavingBase: pension + cycleToWork + employerNICOther + (evExempt ? evLeaseSacrifice : 0),
     postSacrificeSalary,
+    warnings,
   };
 }
 
@@ -207,7 +261,8 @@ export function calculateANI(
   // even though the lease cost is sacrificed)
   const step1NetIncome =
     sacrifice.postSacrificeSalary +      // Gross salary minus all salary sacrifice
-    sacrifice.evBiKIncome +              // EV BiK: added back as employment income
+    sacrifice.evBiKIncome +              // EV BiK (or OpRA value): added back as employment income
+    sacrifice.opraTaxableValue +         // OpRA benefits: taxable value added back
     bik.total +                          // Company car, PMI, other P11D BiK
     parent.bonus.expectedThisYear +      // Bonus
     rsuIncome +                          // RSU vest value (net of transferred employer NIC)
@@ -232,7 +287,7 @@ export function calculateANI(
   // Gross = net contribution ÷ 0.8, limited to the contributions that attract
   // relief: the higher of £3,600 and relevant UK earnings (rules.md §4.2).
   const relevantUKEarnings =
-    sacrifice.postSacrificeSalary + sacrifice.evBiKIncome + bik.total +
+    sacrifice.postSacrificeSalary + sacrifice.evBiKIncome + sacrifice.opraTaxableValue + bik.total +
     parent.bonus.expectedThisYear + rsuIncome + parent.cashAllowances +
     parent.selfEmploymentProfit - netPayPension;
   const step3PensionDeduction = Math.min(
@@ -273,6 +328,7 @@ export function calculateANI(
     biK_companyCar: bik.companyCar,
     biK_pmi: bik.pmi,
     biK_evSacrifice: sacrifice.evBiKIncome,
+    opraTaxableValue: sacrifice.opraTaxableValue,
     biK_other: bik.other,
     cashAllowances: parent.cashAllowances,
     selfEmploymentProfit: parent.selfEmploymentProfit,

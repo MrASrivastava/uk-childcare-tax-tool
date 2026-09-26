@@ -22,6 +22,7 @@ import type { CalculationResult, OptimisationRecommendation } from "../types/out
 import type { TaxYearConfig } from "../types/constants";
 import { getTaxYearConfig } from "../types/constants";
 import {
+  calculateSalarySacrifice,
   calculatePensionCarryForward,
   totalPensionContributionsThisYear,
 } from "./ani";
@@ -113,13 +114,8 @@ function priorityFor(gain: number): OptimisationRecommendation["priority"] {
   return gain > 3_000 ? "high" : gain > 0 ? "medium" : "low";
 }
 
-function totalSacrifice(parent: ParentIncome): number {
-  return (
-    parent.salarySacrifice.pension +
-    (parent.salarySacrifice.ev?.annualLeaseCost ?? 0) +
-    parent.salarySacrifice.cycleToWork +
-    parent.salarySacrifice.other
-  );
+function totalSacrifice(parent: ParentIncome, config: TaxYearConfig): number {
+  return calculateSalarySacrifice(parent, config).totalSacrifice;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +170,7 @@ function pensionHeadroomAvailable(
  */
 function wouldBreachNMW(parent: ParentIncome, additionalSacrifice: number, config: TaxYearConfig): boolean {
   const hours = parent.contractedHoursPerWeek ?? DEFAULT_CONTRACTED_HOURS_PER_WEEK;
-  const postSacrifice = parent.grossSalary - totalSacrifice(parent) - additionalSacrifice;
+  const postSacrifice = parent.grossSalary - totalSacrifice(parent, config) - additionalSacrifice;
   return postSacrifice < config.nationalMinimumWageHourly * hours * 52;
 }
 
@@ -326,7 +322,7 @@ function buildEVRecommendation(ctx: LeverContext, aniReduction: number): Optimis
   if (wouldBreachNMW(parent, lease, config)) return null;
 
   const sim = simulate(ctx.inputs, ctx.base, ctx.core, (d) => {
-    d[ctx.key]!.salarySacrifice.ev = { annualLeaseCost: lease, vehicleP11DValue: TYPICAL_EV_P11D };
+    d[ctx.key]!.salarySacrifice.ev = { annualLeaseCost: lease, vehicleP11DValue: TYPICAL_EV_P11D, co2GramsPerKm: 0 };
   });
 
   return {

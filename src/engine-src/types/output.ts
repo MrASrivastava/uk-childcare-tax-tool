@@ -59,7 +59,9 @@ export interface ANIBreakdown {
   biKIncome: number;                     // Total BiK income added
   biK_companyCar: number;
   biK_pmi: number;
-  biK_evSacrifice: number;              // BiK added back for EV salary sacrifice vehicle
+  biK_evSacrifice: number;              // Taxable value added back for the EV (BiK, or OpRA value above 75g/km)
+  /** Taxable value of OpRA benefits bought by salary sacrifice, added back to employment income */
+  opraTaxableValue: number;
   biK_other: number;
   cashAllowances: number;
   selfEmploymentProfit: number;

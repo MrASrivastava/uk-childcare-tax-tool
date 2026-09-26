@@ -1049,6 +1049,7 @@ function ANIWaterfall({ ani, label }: { ani: ANIBreakdown; label: string }) {
     { l: "Bonus", v: ani.bonusIncome },
     { l: "RSU vest income", v: ani.rsuIncome },
     { l: "Benefits in kind (P11D)", v: ani.biKIncome },
+    { l: "Sacrificed benefits (taxable value)", v: ani.opraTaxableValue },
     { l: "Cash allowances", v: ani.cashAllowances },
     { l: "Self-employment profit", v: ani.selfEmploymentProfit },
     { l: "Net rental income", v: ani.rentalIncomeNet },

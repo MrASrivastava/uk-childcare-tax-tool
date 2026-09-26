@@ -23,6 +23,7 @@ export type {
   PriorYearPensionAllowances,
   Jurisdiction,
   PensionArrangementType,
+  OtherSacrifice,
 } from "./types/income";
 
 // Output types
@@ -70,6 +71,7 @@ export {
   calculatePersonalAllowance,
   calculateEmployeeNIC,
   calculateClass4NIC,
+  calculateSalarySacrifice,
   calculatePensionCarryForward,
   totalPensionContributionsThisYear,
   calculateRSUANIAmount,

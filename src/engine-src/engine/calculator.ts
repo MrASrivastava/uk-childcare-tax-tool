@@ -25,6 +25,7 @@ import {
   calculateIncomeTax,
   calculateEmployeeNIC,
   calculateClass4NIC,
+  calculateSalarySacrifice,
   calculatePensionCarryForward,
   totalPensionContributionsThisYear,
 } from "./ani";
@@ -69,13 +70,10 @@ function buildNICResult(
     );
   }
 
-  // Employer NIC is saved on ALL salary sacrifice, not just pension.
-  // rules.md §4.1: employer NIC saved at 15% on all sacrificed amounts.
-  const totalSacrifice =
-    parent.salarySacrifice.pension +
-    (parent.salarySacrifice.ev?.annualLeaseCost ?? 0) +
-    parent.salarySacrifice.cycleToWork +
-    parent.salarySacrifice.other;
+  // Employer NIC is saved on salary sacrifice, except on OpRA benefits (where
+  // Class 1A replaces it) and cars above 75g/km. rules.md §4.1.
+  const sacrifice = calculateSalarySacrifice(parent, config);
+  warnings.push(...sacrifice.warnings);
 
   const total = class1.employeeNIC + class4;
   return {
@@ -85,7 +83,7 @@ function buildNICResult(
     class4,
     totalEmployeeNIC: total,
     employeeNIC: total,
-    employerNICSavingFromSacrifice: totalSacrifice * config.employerNICRate,
+    employerNICSavingFromSacrifice: sacrifice.employerNICSavingBase * config.employerNICRate,
   };
 }
 

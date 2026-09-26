@@ -27,6 +27,7 @@ import type {
 } from "../types/output";
 import type { TaxYearConfig } from "../types/constants";
 import { minimumIncomeQuarterly } from "../types/constants";
+import { calculateSalarySacrifice } from "./ani";
 
 // ---------------------------------------------------------------------------
 // Utility: threshold proximity status and flag builder
@@ -258,11 +259,7 @@ export interface MinimumIncomeTest {
  * it. The self-employed can average over the tax year instead.
  */
 export function minimumIncomeTest(parent: ParentIncome, config: TaxYearConfig): MinimumIncomeTest {
-  const sacrifice =
-    parent.salarySacrifice.pension +
-    (parent.salarySacrifice.ev?.annualLeaseCost ?? 0) +
-    parent.salarySacrifice.cycleToWork +
-    parent.salarySacrifice.other;
+  const sacrifice = calculateSalarySacrifice(parent, config).totalSacrifice;
   const annualEarnings =
     parent.grossSalary - sacrifice + parent.bonus.expectedThisYear +
     parent.cashAllowances + parent.selfEmploymentProfit;

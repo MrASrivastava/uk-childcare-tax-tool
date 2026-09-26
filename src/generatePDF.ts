@@ -713,6 +713,7 @@ function drawANI(d: Doc, r: CalculationResult) {
       ...(ani.bonusIncome > 0       ? [["Bonus",                  ani.bonusIncome]       as [string,number]] : []),
       ...(ani.rsuIncome > 0         ? [["RSU vests",              ani.rsuIncome]         as [string,number]] : []),
       ...(ani.biKIncome > 0         ? [["Benefits in kind (P11D)",ani.biKIncome]         as [string,number]] : []),
+      ...(ani.opraTaxableValue > 0  ? [["Sacrificed benefits (taxable value)", ani.opraTaxableValue] as [string,number]] : []),
       ...(ani.cashAllowances > 0    ? [["Cash allowances",        ani.cashAllowances]    as [string,number]] : []),
       ...(ani.savingsInterestNonISA > 0 ? [["Non-ISA savings interest",ani.savingsInterestNonISA] as [string,number]] : []),
       ...(ani.dividendsNonISA > 0   ? [["Non-ISA dividends",      ani.dividendsNonISA]   as [string,number]] : []),

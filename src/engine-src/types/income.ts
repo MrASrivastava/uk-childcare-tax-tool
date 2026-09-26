@@ -51,6 +51,14 @@ export interface EVSalarySacrifice {
   vehicleP11DValue: number;
 
   /**
+   * CO2 emissions in g/km. Cars at 75g/km or less keep the full salary
+   * sacrifice advantage; above that (most hybrids) the optional remuneration
+   * (OpRA) rules apply and the taxable value is the higher of the lease cost
+   * and the BiK. Omit or 0 for a pure electric car.
+   */
+  co2GramsPerKm?: number;
+
+  /**
    * Override the default BiK rate for this vehicle if it differs from the standard EV rate.
    * If undefined, the tool uses the standard EV BiK rate from TaxYearConfig.
    * Non-EV company car BiK rates range 17–37% — set explicitly for non-EV vehicles.
@@ -73,11 +81,35 @@ export interface SalarySacrificeInputs {
   cycleToWork: number;
 
   /**
-   * Any other salary sacrifice amounts (e.g. additional holiday purchase, gym).
-   * Amounts that reduce gross salary pre-tax and have no BiK charge.
+   * @deprecated Use otherItems. A bare amount can't say whether the sacrifice
+   * really reduces taxable pay, so it is treated conservatively as an OpRA
+   * benefit worth the salary given up: it reduces Class 1 NIC but not ANI.
    */
   other: number;
+
+  /**
+   * Other salary sacrifice arrangements, typed by how the optional
+   * remuneration (OpRA) rules in ITEPA 2003 s.69A treat them.
+   */
+  otherItems?: OtherSacrifice[];
 }
+
+/**
+ * A salary sacrifice other than pension, EV or cycle-to-work.
+ *
+ * - pay_reduction: a genuine cut in pay with no benefit in return (e.g.
+ *   buying extra holiday). Reduces taxable pay, ANI and Class 1 NIC.
+ * - opra_benefit: salary given up for a benefit (gym, technology, dental...).
+ *   Under OpRA the taxable value is the higher of the salary forgone and the
+ *   benefit's normal value, so for income tax and ANI the sacrifice mostly
+ *   unwinds. Class 1 NIC is still saved; the employer pays Class 1A instead.
+ * - excluded_benefit: benefits outside OpRA (workplace childcare, pension
+ *   advice) keep the full advantage.
+ */
+export type OtherSacrifice =
+  | { kind: "pay_reduction"; label: string; amount: number }
+  | { kind: "opra_benefit"; label: string; salaryForgone: number; normalBenefitValue: number }
+  | { kind: "excluded_benefit"; label: string; amount: number; category: "workplace_childcare" | "pension_advice" };
 
 // ---------------------------------------------------------------------------
 // Sub-types — Bonuses

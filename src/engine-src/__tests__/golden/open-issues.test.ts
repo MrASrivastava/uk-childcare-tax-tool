@@ -28,7 +28,7 @@ describe("N1 — Class 4 NIC", () => {
 });
 
 describe("N3 — OpRA-aware salary sacrifice", () => {
-  it.fails("a legacy £6,000 'other' sacrifice does not reduce ANI", () => {
+  it("a legacy £6,000 'other' sacrifice does not reduce ANI", () => {
     // Treated as an OpRA benefit worth the salary forgone: no ANI reduction
     const r = calculate(household({
       parentA: parent(105_000, { salarySacrifice: { pension: 0, ev: null, cycleToWork: 0, other: 6_000 } }),
