@@ -535,17 +535,21 @@ export function calculatePensionCarryForward(
   if (parent.priorYearPensionAllowances === null) return null;
   if (parent.mpaaTriggered) return null; // Carry-forward cannot extend beyond MPAA for DC
 
-  const { totalContributionsMinus1Year, totalContributionsMinus2Years, totalContributionsMinus3Years } =
-    parent.priorYearPensionAllowances;
+  const prior = parent.priorYearPensionAllowances;
+  const [aa1, aa2, aa3] = config.pension.priorYearAnnualAllowances;
 
-  // For simplicity, we apply the current Annual Allowance to all prior years.
-  // In a production version this would use historical AA values.
-  const aa = config.pension.annualAllowance;
-  const carry1 = Math.max(aa - totalContributionsMinus1Year, 0);
-  const carry2 = Math.max(aa - totalContributionsMinus2Years, 0);
-  const carry3 = Math.max(aa - totalContributionsMinus3Years, 0);
+  // Unused allowance from each year, capped at that year's own Annual
+  // Allowance, and only for years in which the person was a scheme member.
+  // The current year's allowance is used first: callers add this on top of
+  // the remaining current-year headroom.
+  const unused = (aa: number, used: number, member: boolean | undefined) =>
+    member === false ? 0 : Math.max(aa - used, 0);
 
-  return carry1 + carry2 + carry3;
+  return (
+    unused(aa1, prior.totalContributionsMinus1Year, prior.schemeMemberMinus1Year) +
+    unused(aa2, prior.totalContributionsMinus2Years, prior.schemeMemberMinus2Years) +
+    unused(aa3, prior.totalContributionsMinus3Years, prior.schemeMemberMinus3Years)
+  );
 }
 
 /**

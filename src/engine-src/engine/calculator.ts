@@ -29,6 +29,7 @@ import {
 } from "./ani";
 import {
   parentWorkingEligibilityFlag,
+  minimumIncomeTest,
   computeFreeHoursForChild,
   computeTFCEligibility,
   computeHICBC,
@@ -247,7 +248,7 @@ export function computeCrossoverANI(
  */
 export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   const config = getTaxYearConfig(inputs.taxYear);
-  const localRates = inputs.localHourlyRates ?? DEFAULT_LOCAL_HOURLY_RATES;
+  const localRates = inputs.providerHourlyRates ?? inputs.localHourlyRates ?? DEFAULT_LOCAL_HOURLY_RATES;
   const referenceDate = inputs.asOfDate
     ? new Date(inputs.asOfDate + "T00:00:00Z")
     : new Date(); // Today — determines child age groups
@@ -353,21 +354,14 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   // ---- Step 5d: Working parent eligibility flags --------------------------
-  const parentAWorkingEligible =
-    parentWorkingEligibilityFlag(
-      parentAANI,
-      inputs.parentA.exemptFromMinimumIncome,
-      inputs.parentA.onStatutoryLeave,
-      config
-    ).status !== "not_eligible";
+  const parentAMinIncome = minimumIncomeTest(inputs.parentA, config);
+  const parentBMinIncome = inputs.parentB ? minimumIncomeTest(inputs.parentB, config) : null;
 
-  const parentBWorkingEligible = inputs.parentB
-    ? parentWorkingEligibilityFlag(
-        parentBANI!,
-        inputs.parentB.exemptFromMinimumIncome,
-        inputs.parentB.onStatutoryLeave,
-        config
-      ).status !== "not_eligible"
+  const parentAWorkingEligible =
+    parentWorkingEligibilityFlag(parentAANI, parentAMinIncome, config).status !== "not_eligible";
+
+  const parentBWorkingEligible = inputs.parentB && parentBMinIncome
+    ? parentWorkingEligibilityFlag(parentBANI!, parentBMinIncome, config).status !== "not_eligible"
     : null;
 
   // ---- Step 6: Free hours per child ----------------------------------------
@@ -415,10 +409,8 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   const tfc = computeTFCEligibility(
     parentAANI,
     parentBANI,
-    inputs.parentA.exemptFromMinimumIncome,
-    inputs.parentA.onStatutoryLeave,
-    inputs.parentB?.exemptFromMinimumIncome ?? false,
-    inputs.parentB?.onStatutoryLeave ?? false,
+    parentAMinIncome,
+    parentBMinIncome,
     inputs.children,
     childBills,
     config,

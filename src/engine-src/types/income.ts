@@ -9,7 +9,7 @@
  * what data the UI must collect.
  */
 
-import type { TaxYear } from "./constants";
+import type { MinimumIncomeAgeBand, TaxYear } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Enumerations
@@ -213,6 +213,15 @@ export interface PriorYearPensionAllowances {
   totalContributionsMinus1Year: number;
   totalContributionsMinus2Years: number;
   totalContributionsMinus3Years: number;
+
+  /**
+   * Whether the individual was a member of a registered pension scheme in each
+   * prior year. Carry-forward is only available from years of membership.
+   * Default true.
+   */
+  schemeMemberMinus1Year?: boolean;
+  schemeMemberMinus2Years?: boolean;
+  schemeMemberMinus3Years?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +367,24 @@ export interface ParentIncome {
   exemptFromMinimumIncome: boolean;
 
   /**
+   * Expected earnings from work (employment and self-employment) over the next
+   * 3 months, for the childcare minimum income test. If omitted, the engine
+   * uses a quarter of annual cash earnings (salary after sacrifice, bonus,
+   * cash allowances and self-employment profit). Rental, savings and
+   * dividend income do not count.
+   */
+  expectedEarningsNext3Months?: number;
+
+  /** Age band for the minimum income test. Defaults to 21 and over. */
+  ageBand?: MinimumIncomeAgeBand;
+
+  /**
+   * TRUE if self-employed. A self-employed parent who won't earn enough in the
+   * next 3 months can average expected earnings over the tax year instead.
+   */
+  selfEmployed?: boolean;
+
+  /**
    * Contracted hours per week. Used to check that salary sacrifice does not
    * take pay below the National Minimum Wage. Defaults to 37.5.
    */
@@ -396,11 +423,11 @@ export interface ChildInfo {
 // ---------------------------------------------------------------------------
 
 export interface LocalHourlyRates {
-  /** Government-funded hourly rate for under-2s in this local authority area */
+  /** Hourly rate for under-2s */
   under2: number;
-  /** Government-funded hourly rate for 2-year-olds */
+  /** Hourly rate for 2-year-olds */
   age2: number;
-  /** Government-funded hourly rate for 3–4-year-olds */
+  /** Hourly rate for 3–4-year-olds */
   age3to4: number;
 }
 
@@ -448,10 +475,15 @@ export interface HouseholdInputs {
   jurisdiction: Jurisdiction;
 
   /**
-   * Local authority hourly funding rates for the family's area.
-   * If not provided, the tool uses DEFAULT_LOCAL_HOURLY_RATES (national averages).
-   * Inner London rates are significantly higher than the national average.
+   * The family's nursery / provider hourly rate for each age band. A funded
+   * hour saves the family what the provider would otherwise charge, so this
+   * is what free hours are valued at. If not provided, the tool falls back to
+   * DEFAULT_LOCAL_HOURLY_RATES (national average funding rates), which usually
+   * understates the value.
    */
+  providerHourlyRates?: LocalHourlyRates;
+
+  /** @deprecated Use providerHourlyRates. Still honoured if providerHourlyRates is absent. */
   localHourlyRates?: LocalHourlyRates;
 
   /**

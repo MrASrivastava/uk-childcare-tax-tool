@@ -13,6 +13,9 @@
 
 export type TaxYear = "2025/26" | "2026/27";
 
+/** Age band for the childcare minimum income test (apprentices use the lowest rate). */
+export type MinimumIncomeAgeBand = "21_plus" | "18_to_20" | "under_18_or_apprentice";
+
 export interface IncomeTaxBand {
   /** Lower bound of taxable income (after personal allowance) */
   from: number;
@@ -48,7 +51,11 @@ export interface FreeHoursConfig {
   workingParentHoursPerWeek: number;
   /** Minimum number of term weeks per year (statutory floor) */
   minTermWeeksPerYear: number;
-  /** Minimum income per parent to qualify (£/year) */
+  /**
+   * Minimum income per parent to qualify (£/year) for someone aged 21 or over,
+   * for display. The test itself is on expected earnings over the next
+   * 3 months: see minimumIncomeQuarterly().
+   */
   minimumIncomeThreshold: number;
   /** Maximum ANI per parent — hard cliff edge */
   maximumANIThreshold: number;
@@ -61,7 +68,7 @@ export interface TFCConfig {
   maxTopUpPerChildPerYear: number;
   /** Maximum government top-up per disabled child per year */
   maxTopUpDisabledPerYear: number;
-  /** Minimum income threshold (same as free hours) */
+  /** Minimum income threshold for 21 and over, £/year (same as free hours; display only) */
   minimumIncomeThreshold: number;
   /** Maximum ANI — hard cliff edge */
   maximumANIThreshold: number;
@@ -94,6 +101,11 @@ export interface PensionConfig {
   taperedAA_adjustedIncome: number;
   /** Minimum tapered Annual Allowance */
   taperedAA_minimum: number;
+  /**
+   * Annual Allowance in each of the three prior tax years, most recent first.
+   * Carry-forward from a year is limited to that year's allowance.
+   */
+  priorYearAnnualAllowances: [number, number, number];
 }
 
 export interface EVBiKConfig {
@@ -125,9 +137,11 @@ export interface TaxYearConfig {
   /** Employer secondary threshold (annual) */
   employerNICSecondaryThreshold: number;
 
-  /** NMW rate for main rate (used for minimum income threshold calculation) */
+  /** National Living Wage (21 and over) — used for the salary sacrifice NMW floor */
   nationalMinimumWageHourly: number;
-  /** Hours per week used for minimum income threshold calculation */
+  /** Hourly minimum wage by age band — drives the childcare minimum income test */
+  minimumWageByAgeBand: Record<MinimumIncomeAgeBand, number>;
+  /** Hours per week used for minimum income threshold calculation (16) */
   minimumIncomeHoursPerWeek: number;
 
   childBenefit: ChildBenefitRates;
@@ -172,9 +186,22 @@ export interface TaxYearConfig {
 const MIN_INCOME_WEEKLY_HOURS = 16;
 
 function deriveMinimumIncome(nmwHourly: number, hoursPerWeek: number): number {
-  // 52-week year. HMRC uses a floor (truncation), not rounding.
-  // Example: 16 × £12.21 × 52 = £10,158.72 → £10,158 per rules.md §2.2.1.
-  return Math.floor(nmwHourly * hoursPerWeek * 52);
+  // Annual equivalent: 16 hours × NLW × 52 weeks, to the penny (no rounding).
+  // Example: 16 × £12.71 × 52 = £10,574.72 (2026/27).
+  return Math.round(nmwHourly * hoursPerWeek * 52 * 100) / 100;
+}
+
+/**
+ * minimumIncomeQuarterly
+ *
+ * The childcare minimum income test: expected earnings over the next 3 months
+ * must be at least 16 hours a week at the minimum wage for the parent's age,
+ * over 13 weeks. Example: 16 × £12.71 × 13 = £2,643.68 (21 and over, 2026/27).
+ *
+ * rules.md §2.2.1.
+ */
+export function minimumIncomeQuarterly(config: TaxYearConfig, band: MinimumIncomeAgeBand): number {
+  return Math.round(config.minimumWageByAgeBand[band] * config.minimumIncomeHoursPerWeek * 13 * 100) / 100;
 }
 
 export const TAX_YEAR_2025_26: TaxYearConfig = {
@@ -208,6 +235,7 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
   employerNICSecondaryThreshold: 5_000, // Secondary threshold for 2025/26
 
   nationalMinimumWageHourly: 12.21,
+  minimumWageByAgeBand: { "21_plus": 12.21, "18_to_20": 10.00, "under_18_or_apprentice": 7.55 },
   minimumIncomeHoursPerWeek: MIN_INCOME_WEEKLY_HOURS,
 
   childBenefit: {
@@ -245,6 +273,8 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
     taperedAA_thresholdIncome: 200_000,
     taperedAA_adjustedIncome: 260_000,
     taperedAA_minimum: 10_000,
+    // 2024/25, 2023/24, 2022/23 (the AA was £40,000 until 2022/23)
+    priorYearAnnualAllowances: [60_000, 60_000, 40_000],
   },
 
   evBiKRate: 0.03,
@@ -296,17 +326,24 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
   // Dividend ordinary and upper rates rise by 2 percentage points from April 2026
   dividendRates: { basic: 0.1075, higher: 0.3575, additional: 0.3935 },
 
-  // NMW expected to rise — update when confirmed. Using 2025/26 as placeholder.
-  // freeHours.minimumIncomeThreshold will inherit from spread but override here
-  // when NMW for 2026/27 is announced.
+  // Minimum wage from April 2026: £12.71 (21+), £10.85 (18–20), £8.00 (under 18 / apprentice)
+  nationalMinimumWageHourly: 12.71,
+  minimumWageByAgeBand: { "21_plus": 12.71, "18_to_20": 10.85, "under_18_or_apprentice": 8.00 },
+
   freeHours: {
     ...TAX_YEAR_2025_26.freeHours,
-    // Will be updated once 2026/27 NMW confirmed
+    minimumIncomeThreshold: deriveMinimumIncome(12.71, MIN_INCOME_WEEKLY_HOURS),
   },
 
   tfc: {
     ...TAX_YEAR_2025_26.tfc,
-    // Will be updated once 2026/27 NMW confirmed
+    minimumIncomeThreshold: deriveMinimumIncome(12.71, MIN_INCOME_WEEKLY_HOURS),
+  },
+
+  pension: {
+    ...TAX_YEAR_2025_26.pension,
+    // 2025/26, 2024/25, 2023/24
+    priorYearAnnualAllowances: [60_000, 60_000, 60_000],
   },
 };
 
@@ -325,12 +362,18 @@ export function getTaxYearConfig(year: TaxYear): TaxYearConfig {
 }
 
 // ---------------------------------------------------------------------------
-// National average local authority hourly funding rates (indicative)
-// Override with user-provided local rates in HouseholdInputs
+// Fallback hourly value of funded childcare
 // ---------------------------------------------------------------------------
+//
+// What a funded hour saves a family is the price their provider would
+// otherwise charge, which is often well above what the council pays the
+// provider. Users should enter their nursery's hourly rate
+// (HouseholdInputs.providerHourlyRates). When they don't, the engine falls
+// back to the 2026/27 national average funding rates below, which will
+// usually UNDERSTATE the value, especially in London.
 
 export const DEFAULT_LOCAL_HOURLY_RATES = {
-  under2: 11.00,
-  age2: 9.00,
-  age3to4: 7.50,
+  under2: 12.04,
+  age2: 8.90,
+  age3to4: 6.42,
 } as const;

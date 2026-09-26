@@ -51,9 +51,10 @@ export {
   DEFAULT_LOCAL_HOURLY_RATES,
   TAX_YEAR_2025_26,
   TAX_YEAR_2026_27,
+  minimumIncomeQuarterly,
 } from "./types/constants";
 
-export type { TaxYear, TaxYearConfig } from "./types/constants";
+export type { TaxYear, TaxYearConfig, MinimumIncomeAgeBand } from "./types/constants";
 
 // Utility: empty parent template for UI forms
 export { createEmptyParentIncome } from "./types/income";
@@ -73,6 +74,7 @@ export {
   compulsorySchoolAgeDate,
   getChildAgeGroup,
   parentWorkingEligibilityFlag,
+  minimumIncomeTest,
   computeHICBC,
   computeTFCEligibility,
 } from "./engine/eligibility";
@@ -89,7 +91,7 @@ export {
   mkFlag,
 } from "./engine/eligibility";
 
-export type { ChildAgeGroupResult } from "./engine/eligibility";
+export type { ChildAgeGroupResult, MinimumIncomeTest } from "./engine/eligibility";
 
 export { computeFreeHoursForChild } from "./engine/eligibility";
 

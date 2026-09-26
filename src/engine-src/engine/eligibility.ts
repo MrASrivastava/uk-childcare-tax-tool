@@ -16,7 +16,7 @@
  *   - Correct treatment when one parent is over £100k for the universal 15hr entitlement
  */
 
-import type { ChildInfo } from "../types/income";
+import type { ChildInfo, ParentIncome } from "../types/income";
 import type {
   EligibilityFlag,
   EligibilityStatus,
@@ -26,6 +26,7 @@ import type {
   TFCResult,
 } from "../types/output";
 import type { TaxYearConfig } from "../types/constants";
+import { minimumIncomeQuarterly } from "../types/constants";
 
 // ---------------------------------------------------------------------------
 // Utility: threshold proximity status and flag builder
@@ -205,32 +206,76 @@ export function getChildAgeGroup(
 // ---------------------------------------------------------------------------
 
 /**
+ * Result of the minimum income test for one parent (rules.md §2.2.1).
+ * The test is on expected earnings over the next 3 months, not ANI.
+ */
+export interface MinimumIncomeTest {
+  meets: boolean;
+  /** Expected earnings from work over the next 3 months (£) */
+  expectedQuarterlyEarnings: number;
+  /** Threshold for the parent's age band (£ per 3 months) */
+  quarterlyThreshold: number;
+  /** Exempt: statutory leave, disability or carer */
+  exempt: boolean;
+}
+
+/**
+ * minimumIncomeTest
+ *
+ * Expected earnings over the next 3 months must be at least 16 hours/week at
+ * the minimum wage for the parent's age × 13 weeks. Only earned income counts
+ * (not rent, savings or dividends), and pension contributions do not reduce
+ * it. The self-employed can average over the tax year instead.
+ */
+export function minimumIncomeTest(parent: ParentIncome, config: TaxYearConfig): MinimumIncomeTest {
+  const sacrifice =
+    parent.salarySacrifice.pension +
+    (parent.salarySacrifice.ev?.annualLeaseCost ?? 0) +
+    parent.salarySacrifice.cycleToWork +
+    parent.salarySacrifice.other;
+  const annualEarnings =
+    parent.grossSalary - sacrifice + parent.bonus.expectedThisYear +
+    parent.cashAllowances + parent.selfEmploymentProfit;
+  const averaged = Math.max(annualEarnings, 0) / 4;
+  let expected = parent.expectedEarningsNext3Months ?? averaged;
+  if (parent.selfEmployed) expected = Math.max(expected, averaged);
+
+  const quarterlyThreshold = minimumIncomeQuarterly(config, parent.ageBand ?? "21_plus");
+  const exempt = parent.exemptFromMinimumIncome || parent.onStatutoryLeave;
+  return {
+    meets: exempt || expected >= quarterlyThreshold,
+    expectedQuarterlyEarnings: expected,
+    quarterlyThreshold,
+    exempt,
+  };
+}
+
+const gbp = (n: number) => `£${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+/**
  * parentWorkingEligibilityFlag
  *
  * Checks whether a single parent meets the working-parent income requirements:
- *   (a) ANI >= minimum income threshold (or exempt via statutory leave/disability/carer)
+ *   (a) expected earnings over the next 3 months >= minimum income threshold
+ *       (or exempt via statutory leave/disability/carer)
  *   (b) ANI <= £100,000 — hard cliff, no taper
  *
  * rules.md §2.2.1.
  */
 export function parentWorkingEligibilityFlag(
   ani: number,
-  isExemptFromMinimumIncome: boolean,
-  onStatutoryLeave: boolean,
+  minIncome: MinimumIncomeTest,
   config: TaxYearConfig
 ): EligibilityFlag {
-  const min = config.freeHours.minimumIncomeThreshold;
   const max = config.freeHours.maximumANIThreshold;
 
-  const meetsMin = isExemptFromMinimumIncome || onStatutoryLeave || ani >= min;
-
-  if (!meetsMin) {
+  if (!minIncome.meets) {
     return mkFlag(
       "not_eligible",
-      `Income (£${Math.round(ani).toLocaleString()}) is below the minimum working threshold ` +
-      `of £${min.toLocaleString()}/year (equivalent to 16 hours/week at NMW). ` +
+      `Expected earnings over the next 3 months (${gbp(Math.round(minIncome.expectedQuarterlyEarnings))}) are below ` +
+      `the minimum of ${gbp(minIncome.quarterlyThreshold)} (16 hours/week at the minimum wage for your age). ` +
       `Parents on statutory leave, with qualifying disabilities, or acting as registered carers are exempt.`,
-      min - ani
+      minIncome.quarterlyThreshold - minIncome.expectedQuarterlyEarnings
     );
   }
 
@@ -342,8 +387,9 @@ export function computeFreeHoursForChild(
       } else {
         workingEligibilityFlag = mkFlag(
           "not_eligible",
-          "Working parent conditions not met. Both parents must earn between " +
-          "£10,158 and £100,000 (ANI). No funded hours for this child.",
+          "Working parent conditions not met. Both parents must meet the minimum income test " +
+          `and have ANI of no more than £${config.freeHours.maximumANIThreshold.toLocaleString()}. ` +
+          "No funded hours for this child.",
           0
         );
       }
@@ -579,16 +625,13 @@ export function tfcTopUpValue(
 export function computeTFCEligibility(
   parentAANI: number,
   parentBANI: number | null,
-  parentAExemptFromMin: boolean,
-  parentAOnLeave: boolean,
-  parentBExemptFromMin: boolean,
-  parentBOnLeave: boolean,
+  parentAMinIncome: MinimumIncomeTest,
+  parentBMinIncome: MinimumIncomeTest | null,
   children: ChildInfo[],
   childBills: number[],
   config: TaxYearConfig,
   referenceDate: Date
 ): TFCResult {
-  const min = config.tfc.minimumIncomeThreshold;
   const max = config.tfc.maximumANIThreshold;
 
   // ---- Check 1: Maximum income (hard cliff) --------------------------------
@@ -614,24 +657,22 @@ export function computeTFCEligibility(
     };
   }
 
-  // ---- Check 2: Minimum income ---------------------------------------------
-  const parentAMeetsMin = parentAExemptFromMin || parentAOnLeave || parentAANI >= min;
-  const parentBMeetsMin =
-    parentBANI === null ||
-    parentBExemptFromMin ||
-    parentBOnLeave ||
-    parentBANI >= min;
+  // ---- Check 2: Minimum income (expected earnings, next 3 months) ----------
+  const failing = !parentAMinIncome.meets
+    ? { label: "Parent A", test: parentAMinIncome }
+    : parentBMinIncome && !parentBMinIncome.meets
+    ? { label: "Parent B", test: parentBMinIncome }
+    : null;
 
-  if (!parentAMeetsMin || !parentBMeetsMin) {
-    const failingParent = !parentAMeetsMin ? "Parent A" : "Parent B";
-    const failingANI = !parentAMeetsMin ? parentAANI : parentBANI!;
+  if (failing) {
     return {
       eligible: mkFlag(
         "not_eligible",
-        `${failingParent}'s income (£${Math.round(failingANI).toLocaleString()}) ` +
-        `is below the minimum threshold of £${min.toLocaleString()}/year. ` +
+        `${failing.label}'s expected earnings over the next 3 months ` +
+        `(${gbp(Math.round(failing.test.expectedQuarterlyEarnings))}) are below the minimum of ` +
+        `${gbp(failing.test.quarterlyThreshold)}. ` +
         `Parents on statutory leave, with qualifying disabilities, or acting as carers are exempt.`,
-        min - failingANI
+        failing.test.quarterlyThreshold - failing.test.expectedQuarterlyEarnings
       ),
       eligibleChildCount: 0,
       maxPossibleTopUpAnnual: 0,
