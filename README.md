@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![Tax Year](https://img.shields.io/badge/Tax%20Year-2025%2F26-orange)](#tax-year-coverage)
+[![Tax Year](https://img.shields.io/badge/Tax%20Years-2025%2F26%20%7C%202026%2F27-orange)](#tax-year-coverage)
 
 **▶ Try it now: https://mrasrivastava.github.io/uk-childcare-tax-tool/** — no install needed, runs entirely in your browser.
 
@@ -29,17 +29,20 @@ The UK childcare support system contains some of the sharpest financial cliff ed
 
 ## Quick start
 
-**Requirements:** Node.js 18+ and npm.
+**Requirements:** Node.js 22.13+ or 24+ (22 LTS recommended) and npm. The repo's `.nvmrc` pins Node 22, and `npm install` refuses older versions.
 
 ```bash
 # 1. Clone
 git clone https://github.com/MrASrivastava/uk-childcare-tax-tool.git
 cd uk-childcare-tax-tool
 
-# 2. Install
+# 2. Use the pinned Node version (if you use nvm)
+nvm use
+
+# 3. Install
 npm install
 
-# 3. Run
+# 4. Run
 npm run dev
 ```
 
@@ -138,15 +141,19 @@ console.log(top?.lever, top?.netAnnualGain, top?.pensionPotIncrease);
 
 ## Testing
 
-The calculation engine has a Vitest suite in `src/engine-src/__tests__/`. Each test pins a household scenario to a known correct figure.
+The calculation engine has a Vitest suite in `src/engine-src/__tests__/`. Each test pins a household scenario to a known correct figure. `golden/` holds the boundary cases and the worked examples from the audits.
 
 ```bash
-npm test        # Vitest
-npm run build   # type-checks (tsc -b) and builds
-npm run lint    # ESLint
+npm test                  # Vitest
+npm test -- --coverage    # with coverage (90% line floor on src/engine-src)
+npx tsc -b                # type-check
+npm run lint              # ESLint
+npm run build             # production build
 ```
 
-All three must pass before a change is merged. The GitHub Pages deploy runs `npm test` and `npm run build`. Add a test for any new calculation logic and check it against the rules in [`rules.md`](rules.md).
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request on Node 22.13 and 24. The GitHub Pages deploy also runs lint and tests before building. Add a test for any new calculation logic and check it against [`rules.md`](rules.md).
+
+**Maintainers:** turn on branch protection for `main` and require the `CI` check, so a pull request that breaks a golden example can't merge. This is a repository setting, not something the code can do.
 
 ---
 
@@ -171,7 +178,6 @@ All three must pass before a change is merged. The GitHub Pages deploy runs `npm
 **Known limitations** — the following are not currently modelled:
 
 - Scotland, Wales, and Northern Ireland free childcare entitlements (different schemes and rules)
-- Tapered Annual Allowance (requires employer contribution inputs not yet in the UI)
 - IR35, director dividends, or complex ownership structures
 - Universal Credit childcare element
 - Salary sacrifice schemes beyond pension, EV, and cycle-to-work
@@ -199,7 +205,6 @@ Contributions are very welcome, particularly:
 
 - **Scotland / Wales / NI childcare entitlement rules** — the engine flags these jurisdictions but doesn't calculate them
 - **2026/27 and later tax year configurations** — add to `src/engine-src/types/constants.ts`
-- **Tapered Annual Allowance** — requires employer contribution inputs
 - **Bug reports** — especially cases where the tool's output differs from HMRC's own calculators
 - **More tests** — especially eligibility boundary conditions and cross-checks against HMRC's calculators
 

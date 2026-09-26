@@ -15,9 +15,10 @@
  * Internally, we preserve full precision to avoid compounding rounding errors.
  */
 
-import type { ParentIncome, RSUVest } from "../types/income";
+import type { OtherSacrifice, ParentIncome, RSUVest } from "../types/income";
 import type { ANIBreakdown } from "../types/output";
-import type { TaxYearConfig } from "../types/constants";
+import { carryForward, priorYearInputs } from "./pensions";
+import type { PayFrequency, TaxYearConfig } from "../types/constants";
 
 /** Gross personal contributions always relievable, even with no earnings. */
 const RELIEVABLE_CONTRIBUTION_FLOOR = 3_600;
@@ -84,33 +85,84 @@ export function calculateRSUANIAmount(vest: RSUVest, employerNICRate: number): n
 // ---------------------------------------------------------------------------
 
 interface SalarySacrificeResult {
+  /** Total salary given up: reduces cash pay and the Class 1 NIC base */
   totalSacrifice: number;
   pension: number;
   ev: number;
-  evBiKIncome: number;    // BiK income added back for the EV (adds to gross income, not sacrifice)
+  /** Taxable value of the EV added back to employment income (BiK, or the OpRA value) */
+  evBiKIncome: number;
   cycleToWork: number;
+  /** Salary given up under "other" sacrifices (all kinds, including legacy `other`) */
   other: number;
+  /** Taxable value of OpRA benefits added back to employment income */
+  opraTaxableValue: number;
+  /** Sacrifice on which the employer saves Class 1 NIC (excludes OpRA items) */
+  employerNICSavingBase: number;
   postSacrificeSalary: number;
+  warnings: string[];
 }
 
-function calculateSalarySacrifice(
+/** CO2 at or below which a car is excluded from the OpRA rules (g/km) */
+const OPRA_CAR_CO2_LIMIT = 75;
+
+/**
+ * Salary sacrifice for one parent, applying the optional remuneration (OpRA)
+ * rules (ITEPA 2003 s.69A): a sacrifice only reduces taxable pay and ANI
+ * where the rules allow it. Exported for the minimum income test, NMW check
+ * and employer NIC saving, which all need the same figures.
+ */
+export function calculateSalarySacrifice(
   parent: ParentIncome,
   config: TaxYearConfig
 ): SalarySacrificeResult {
   const { salarySacrifice, grossSalary } = parent;
+  const warnings: string[] = [];
 
   const pension = salarySacrifice.pension;
   const cycleToWork = salarySacrifice.cycleToWork;
-  const other = salarySacrifice.other;
 
-  // EV salary sacrifice: the lease cost reduces gross salary, but a BiK is added back
-  // rules.md §4.4: net ANI reduction = lease cost − (P11D × BiK rate)
+  // EV salary sacrifice: the lease cost reduces gross salary, and the car's
+  // taxable value is added back. For a car at 75g/km or less that is the BiK
+  // (rules.md §4.4). Above 75g/km OpRA applies: the higher of lease and BiK.
   let evLeaseSacrifice = 0;
   let evBiKIncome = 0;
+  let evExempt = true;
   if (salarySacrifice.ev !== null) {
     evLeaseSacrifice = salarySacrifice.ev.annualLeaseCost;
     const biKRate = salarySacrifice.ev.biKRateOverride ?? config.evBiKRate;
-    evBiKIncome = salarySacrifice.ev.vehicleP11DValue * biKRate;
+    const bik = salarySacrifice.ev.vehicleP11DValue * biKRate;
+    evExempt = (salarySacrifice.ev.co2GramsPerKm ?? 0) <= OPRA_CAR_CO2_LIMIT;
+    evBiKIncome = evExempt ? bik : Math.max(evLeaseSacrifice, bik);
+    if (!evExempt) {
+      warnings.push(
+        `${parent.label}'s car emits more than ${OPRA_CAR_CO2_LIMIT}g/km CO2, so the optional remuneration rules apply: ` +
+        "its taxable value is the higher of the salary given up and the benefit in kind, and the sacrifice does not reduce ANI."
+      );
+    }
+  }
+
+  // Other sacrifices, typed by their OpRA treatment. A legacy bare `other`
+  // amount is treated as an OpRA benefit worth the salary given up, so it
+  // can't wrongly reduce ANI.
+  const items: OtherSacrifice[] = [...(salarySacrifice.otherItems ?? [])];
+  if (salarySacrifice.other > 0) {
+    items.push({ kind: "opra_benefit", label: "Other (legacy)", salaryForgone: salarySacrifice.other, normalBenefitValue: salarySacrifice.other });
+    warnings.push(
+      `${parent.label}: salarySacrifice.other is deprecated. It has been treated as a benefit worth the salary given up, ` +
+      "so it does not reduce ANI. Use salarySacrifice.otherItems to say whether it is a pay reduction or a benefit."
+    );
+  }
+  let other = 0;
+  let opraTaxableValue = 0;
+  let employerNICOther = 0;
+  for (const item of items) {
+    if (item.kind === "opra_benefit") {
+      other += item.salaryForgone;
+      opraTaxableValue += Math.max(item.salaryForgone, item.normalBenefitValue);
+    } else {
+      other += item.amount;
+      employerNICOther += item.amount;
+    }
   }
 
   const totalSacrifice = pension + evLeaseSacrifice + cycleToWork + other;
@@ -123,7 +175,10 @@ function calculateSalarySacrifice(
     evBiKIncome,
     cycleToWork,
     other,
+    opraTaxableValue,
+    employerNICSavingBase: pension + cycleToWork + employerNICOther + (evExempt ? evLeaseSacrifice : 0),
     postSacrificeSalary,
+    warnings,
   };
 }
 
@@ -207,7 +262,8 @@ export function calculateANI(
   // even though the lease cost is sacrificed)
   const step1NetIncome =
     sacrifice.postSacrificeSalary +      // Gross salary minus all salary sacrifice
-    sacrifice.evBiKIncome +              // EV BiK: added back as employment income
+    sacrifice.evBiKIncome +              // EV BiK (or OpRA value): added back as employment income
+    sacrifice.opraTaxableValue +         // OpRA benefits: taxable value added back
     bik.total +                          // Company car, PMI, other P11D BiK
     parent.bonus.expectedThisYear +      // Bonus
     rsuIncome +                          // RSU vest value (net of transferred employer NIC)
@@ -232,7 +288,7 @@ export function calculateANI(
   // Gross = net contribution ÷ 0.8, limited to the contributions that attract
   // relief: the higher of £3,600 and relevant UK earnings (rules.md §4.2).
   const relevantUKEarnings =
-    sacrifice.postSacrificeSalary + sacrifice.evBiKIncome + bik.total +
+    sacrifice.postSacrificeSalary + sacrifice.evBiKIncome + sacrifice.opraTaxableValue + bik.total +
     parent.bonus.expectedThisYear + rsuIncome + parent.cashAllowances +
     parent.selfEmploymentProfit - netPayPension;
   const step3PensionDeduction = Math.min(
@@ -273,6 +329,7 @@ export function calculateANI(
     biK_companyCar: bik.companyCar,
     biK_pmi: bik.pmi,
     biK_evSacrifice: sacrifice.evBiKIncome,
+    opraTaxableValue: sacrifice.opraTaxableValue,
     biK_other: bik.other,
     cashAllowances: parent.cashAllowances,
     selfEmploymentProfit: parent.selfEmploymentProfit,
@@ -323,51 +380,122 @@ export function calculatePersonalAllowance(
 // NIC calculation for the employee
 // ---------------------------------------------------------------------------
 
+const PERIODS_PER_YEAR: Record<PayFrequency, number> = {
+  weekly: 52,
+  fortnightly: 26,
+  four_weekly: 13,
+  monthly: 12,
+};
+const DAYS_PER_PERIOD: Record<Exclude<PayFrequency, "monthly">, number> = {
+  weekly: 7,
+  fortnightly: 14,
+  four_weekly: 28,
+};
+
+/** Tax month (0 = 6 April–5 May … 11 = 6 March–5 April) containing a date. */
+function taxMonthIndex(date: Date, taxYearStart: number): number {
+  const months = (date.getUTCFullYear() - taxYearStart) * 12 + date.getUTCMonth() - 3;
+  return Math.min(Math.max(date.getUTCDate() >= 6 ? months : months - 1, 0), 11);
+}
+
+/** Pay period index containing a date, for a given pay frequency. */
+function periodIndex(date: Date, taxYearStart: number, frequency: PayFrequency): number {
+  if (frequency === "monthly") return taxMonthIndex(date, taxYearStart);
+  const days = Math.floor((date.getTime() - Date.UTC(taxYearStart, 3, 6)) / 86_400_000);
+  return Math.min(Math.max(Math.floor(days / DAYS_PER_PERIOD[frequency]), 0), PERIODS_PER_YEAR[frequency] - 1);
+}
+
+/** Employee Class 1 on one period's earnings, given that period's thresholds. */
+function class1OnPeriod(earnings: number, pt: number, uel: number, config: TaxYearConfig): number {
+  const [main, additional] = config.employeeNICBands;
+  return Math.max(Math.min(earnings, uel) - pt, 0) * main.rate + Math.max(earnings - uel, 0) * additional.rate;
+}
+
 /**
  * calculateEmployeeNIC
  *
- * Calculates employee Class 1 NIC.
- * NIC is charged on post-sacrifice employment income only (not investment income).
+ * Employee Class 1 NIC, worked out per earnings period as payroll does.
+ * NIC is charged on post-sacrifice employment earnings only (not investment
+ * income, and not benefits in kind, which attract employer-only Class 1A).
  *
- * For RSU vests where employer NIC is transferred:
- *   Employee NIC base = grossRSUValue (NOT net of employer NIC transfer)
- *   See rules.md §6.4.
+ *   - Base pay (salary after sacrifice + cash allowances) is spread evenly
+ *     over the pay periods.
+ *   - A bonus is added to the period it is paid in (bonus.paymentMonth), or
+ *     spread evenly if that is unknown (with a warning).
+ *   - Each RSU vest's GROSS value (not reduced by any transferred employer
+ *     NIC — rules.md §6.4) is added to the period containing the vest date.
+ *   - Each period is charged using that period's published thresholds.
+ *   - Directors use an annual earnings period and the annual thresholds.
  *
- * For all other employment income: NIC base = post-sacrifice employment income.
+ * Mid-year pay changes and HMRC's exact-percentage v table methods are not
+ * modelled, so payroll may differ by a few pounds.
  */
 export function calculateEmployeeNIC(
   parent: ParentIncome,
   config: TaxYearConfig
-): { employmentIncomeForNIC: number; employeeNIC: number } {
+): { employmentIncomeForNIC: number; employeeNIC: number; byPeriod: number[]; warnings: string[] } {
   const sacrifice = calculateSalarySacrifice(parent, config);
   const startYear = taxYearStartYear(config.taxYear);
+  const warnings: string[] = [];
 
-  // RSU gross values for NIC (not net of employer NIC transfer — see rules.md §6.4)
-  const rsuGrossForNIC = parent.rsuVests
-    .filter((v) => isVestInTaxYear(v.vestDate, startYear))
-    .reduce((sum, v) => sum + v.grossValue, 0);
+  const vests = parent.rsuVests.filter((v) => isVestInTaxYear(v.vestDate, startYear));
+  const basePay = Math.max(sacrifice.postSacrificeSalary + parent.cashAllowances, 0);
+  const bonus = parent.bonus.expectedThisYear;
+  const employmentIncomeForNIC = basePay + bonus + vests.reduce((sum, v) => sum + v.grossValue, 0);
 
-  // Employment income for Class 1 NIC purposes:
-  // Post-sacrifice salary + bonuses + cash allowances + RSU GROSS values
-  // (not reduced by transferred employer NIC for NIC purposes).
-  // Benefits in kind are NOT included: they attract employer-only Class 1A NIC.
-  // Net pay pension contributions do NOT reduce the NIC base.
-  // Non-employment income (rental, savings, dividends) is NOT subject to NIC.
-  const employmentIncomeForNIC =
-    sacrifice.postSacrificeSalary +
-    parent.bonus.expectedThisYear +
-    rsuGrossForNIC +
-    parent.cashAllowances;
+  // Directors: annual earnings period
+  if (parent.isDirector) {
+    const [main] = config.employeeNICBands;
+    const nic = class1OnPeriod(employmentIncomeForNIC, main.from, main.to, config);
+    return { employmentIncomeForNIC, employeeNIC: nic, byPeriod: [nic], warnings };
+  }
 
-  let employeeNIC = 0;
-  for (const band of config.employeeNICBands) {
-    if (employmentIncomeForNIC > band.from) {
-      const taxableInBand = Math.min(employmentIncomeForNIC, band.to) - band.from;
-      employeeNIC += taxableInBand * band.rate;
+  const frequency = parent.payFrequency ?? "monthly";
+  const n = PERIODS_PER_YEAR[frequency];
+  const earnings = new Array<number>(n).fill(basePay / n);
+
+  if (bonus > 0) {
+    const month = parent.bonus.paymentMonth;
+    if (month && month >= 1 && month <= 12) {
+      const paid = new Date(Date.UTC(startYear, 3 + month - 1, 6));
+      earnings[periodIndex(paid, startYear, frequency)] += bonus;
+    } else {
+      for (let i = 0; i < n; i++) earnings[i] += bonus / n;
+      warnings.push(
+        `${parent.label}'s bonus payment month isn't set, so it has been spread evenly for National Insurance. ` +
+        "A bonus paid in one month usually costs less NIC; set the month for a more accurate figure."
+      );
     }
   }
 
-  return { employmentIncomeForNIC, employeeNIC };
+  for (const vest of vests) {
+    earnings[periodIndex(new Date(vest.vestDate + "T00:00:00Z"), startYear, frequency)] += vest.grossValue;
+  }
+
+  const { primaryThreshold, upperEarningsLimit } = config.class1Periods[frequency];
+  const byPeriod = earnings.map((e) => class1OnPeriod(e, primaryThreshold, upperEarningsLimit, config));
+  const employeeNIC = byPeriod.reduce((sum, x) => sum + x, 0);
+
+  return { employmentIncomeForNIC, employeeNIC, byPeriod, warnings };
+}
+
+/**
+ * calculateClass4NIC
+ *
+ * Class 4 NIC on self-employed profits for the tax year: the main rate between
+ * the lower and upper profits limits, the additional rate above. Worked out
+ * independently of any Class 1 on employment. Not payable by someone over
+ * State Pension age at the start of the tax year. Class 2 is no longer payable
+ * (from April 2024 the self-employed get an NI credit above the small profits
+ * threshold without paying it).
+ */
+export function calculateClass4NIC(parent: ParentIncome, config: TaxYearConfig): number {
+  if (parent.statePensionAgeReached) return 0;
+  const { lowerProfitsLimit, upperProfitsLimit, mainRate, additionalRate } = config.class4NIC;
+  const profit = Math.max(parent.selfEmploymentProfit, 0);
+  const main = Math.max(Math.min(profit, upperProfitsLimit) - lowerProfitsLimit, 0) * mainRate;
+  const additional = Math.max(profit - upperProfitsLimit, 0) * additionalRate;
+  return main + additional;
 }
 
 // ---------------------------------------------------------------------------
@@ -402,8 +530,9 @@ export function calculateIncomeTax(
   aniBreakdown: ANIBreakdown,
   effectivePA: number,
   parent: ParentIncome,
-  config: TaxYearConfig
-): { taxableIncome: number; totalIncomeTax: number; bands: TaxBandRow[]; taxReductions: number } {
+  config: TaxYearConfig,
+  annualAllowanceExcess = 0
+): { taxableIncome: number; totalIncomeTax: number; bands: TaxBandRow[]; taxReductions: number; annualAllowanceCharge: number } {
   const bandExtension = aniBreakdown.step2GiftAidDeduction + aniBreakdown.step3PensionDeduction;
 
   const savings = Math.max(parent.savingsInterestNonISA, 0);
@@ -503,7 +632,20 @@ export function calculateIncomeTax(
     grossTax
   );
 
-  return { taxableIncome, totalIncomeTax: grossTax - taxReductions, bands: rows, taxReductions };
+  // Annual Allowance charge: the excess pension input is taxed as the top
+  // slice of income at the non-savings rates (Scottish rates for Scottish
+  // taxpayers). PTM056100.
+  const rowsBefore = rows.length;
+  charge(position + taxableDividends - dividendAllowanceUsed, Math.max(annualAllowanceExcess, 0), "annual allowance charge ", nonSavingsBands, (i) => nonSavingsBands[i].rate);
+  const annualAllowanceCharge = rows.slice(rowsBefore).reduce((sum, r) => sum + r.taxCharged, 0);
+
+  return {
+    taxableIncome,
+    totalIncomeTax: grossTax - taxReductions + annualAllowanceCharge,
+    bands: rows,
+    taxReductions,
+    annualAllowanceCharge,
+  };
 }
 
 /**
@@ -526,14 +668,15 @@ function extendBands<T extends { from: number; to: number }>(
 }
 
 // ---------------------------------------------------------------------------
-// Pension carry-forward calculation
+// Pension carry-forward (see pensions.ts for the full Annual Allowance test)
 // ---------------------------------------------------------------------------
 
 /**
  * calculatePensionCarryForward
  *
- * Computes the carry-forward available from the prior 3 tax years.
- * Returns null if prior year data was not provided.
+ * Unused Annual Allowance available from the prior three tax years, using
+ * each year's own allowance and only years of scheme membership. Returns null
+ * if prior-year data was not provided.
  *
  * rules.md §4.2 and §6.6.
  */
@@ -541,37 +684,18 @@ export function calculatePensionCarryForward(
   parent: ParentIncome,
   config: TaxYearConfig
 ): number | null {
-  if (parent.priorYearPensionAllowances === null) return null;
-  if (parent.mpaaTriggered) return null; // Carry-forward cannot extend beyond MPAA for DC
-
-  const prior = parent.priorYearPensionAllowances;
-  const [aa1, aa2, aa3] = config.pension.priorYearAnnualAllowances;
-
-  // Unused allowance from each year, capped at that year's own Annual
-  // Allowance, and only for years in which the person was a scheme member.
-  // The current year's allowance is used first: callers add this on top of
-  // the remaining current-year headroom.
-  const unused = (aa: number, used: number, member: boolean | undefined) =>
-    member === false ? 0 : Math.max(aa - used, 0);
-
-  return (
-    unused(aa1, prior.totalContributionsMinus1Year, prior.schemeMemberMinus1Year) +
-    unused(aa2, prior.totalContributionsMinus2Years, prior.schemeMemberMinus2Years) +
-    unused(aa3, prior.totalContributionsMinus3Years, prior.schemeMemberMinus3Years)
-  );
+  const prior = priorYearInputs(parent, config.taxYear);
+  return prior ? carryForward(prior, config.taxYear, config) : null;
 }
 
 /**
- * Sums all pension contributions made by a parent across all arrangement types
- * in the current tax year (for Annual Allowance checking).
- *
- * Employer contributions are not included here — they are included in the
- * Annual Allowance but are typically an input from the employer scheme documentation.
+ * @deprecated Use pensionInputs() in pensions.ts, which also counts employer
+ * contributions and DB accrual. Employee contributions only.
  */
 export function totalPensionContributionsThisYear(parent: ParentIncome): number {
   return (
-    parent.salarySacrifice.pension +                                    // Salary sacrifice
-    parent.personalPensionContributions.reliefAtSourceNet / 0.8 +       // Gross relief-at-source
-    parent.personalPensionContributions.netPayArrangementGross           // Net pay arrangement
+    parent.salarySacrifice.pension +
+    parent.personalPensionContributions.reliefAtSourceNet / 0.8 +
+    parent.personalPensionContributions.netPayArrangementGross
   );
 }

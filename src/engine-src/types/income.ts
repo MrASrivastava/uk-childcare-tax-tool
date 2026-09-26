@@ -9,7 +9,7 @@
  * what data the UI must collect.
  */
 
-import type { MinimumIncomeAgeBand, TaxYear } from "./constants";
+import type { MinimumIncomeAgeBand, PayFrequency, TaxYear } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Enumerations
@@ -51,6 +51,14 @@ export interface EVSalarySacrifice {
   vehicleP11DValue: number;
 
   /**
+   * CO2 emissions in g/km. Cars at 75g/km or less keep the full salary
+   * sacrifice advantage; above that (most hybrids) the optional remuneration
+   * (OpRA) rules apply and the taxable value is the higher of the lease cost
+   * and the BiK. Omit or 0 for a pure electric car.
+   */
+  co2GramsPerKm?: number;
+
+  /**
    * Override the default BiK rate for this vehicle if it differs from the standard EV rate.
    * If undefined, the tool uses the standard EV BiK rate from TaxYearConfig.
    * Non-EV company car BiK rates range 17–37% — set explicitly for non-EV vehicles.
@@ -73,11 +81,35 @@ export interface SalarySacrificeInputs {
   cycleToWork: number;
 
   /**
-   * Any other salary sacrifice amounts (e.g. additional holiday purchase, gym).
-   * Amounts that reduce gross salary pre-tax and have no BiK charge.
+   * @deprecated Use otherItems. A bare amount can't say whether the sacrifice
+   * really reduces taxable pay, so it is treated conservatively as an OpRA
+   * benefit worth the salary given up: it reduces Class 1 NIC but not ANI.
    */
   other: number;
+
+  /**
+   * Other salary sacrifice arrangements, typed by how the optional
+   * remuneration (OpRA) rules in ITEPA 2003 s.69A treat them.
+   */
+  otherItems?: OtherSacrifice[];
 }
+
+/**
+ * A salary sacrifice other than pension, EV or cycle-to-work.
+ *
+ * - pay_reduction: a genuine cut in pay with no benefit in return (e.g.
+ *   buying extra holiday). Reduces taxable pay, ANI and Class 1 NIC.
+ * - opra_benefit: salary given up for a benefit (gym, technology, dental...).
+ *   Under OpRA the taxable value is the higher of the salary forgone and the
+ *   benefit's normal value, so for income tax and ANI the sacrifice mostly
+ *   unwinds. Class 1 NIC is still saved; the employer pays Class 1A instead.
+ * - excluded_benefit: benefits outside OpRA (workplace childcare, pension
+ *   advice) keep the full advantage.
+ */
+export type OtherSacrifice =
+  | { kind: "pay_reduction"; label: string; amount: number }
+  | { kind: "opra_benefit"; label: string; salaryForgone: number; normalBenefitValue: number }
+  | { kind: "excluded_benefit"; label: string; amount: number; category: "workplace_childcare" | "pension_advice" };
 
 // ---------------------------------------------------------------------------
 // Sub-types — Bonuses
@@ -103,6 +135,13 @@ export interface BonusInputs {
    * Optional — used only when the tool models deferral scenarios.
    */
   expectedNextYear?: number;
+
+  /**
+   * Tax month the bonus is paid in: 1 = 6 April–5 May, … 12 = 6 March–5 April.
+   * Class 1 NIC is charged in the pay period it is paid. If omitted, the bonus
+   * is spread evenly across the year and a warning is shown.
+   */
+  paymentMonth?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +263,20 @@ export interface PriorYearPensionAllowances {
   schemeMemberMinus3Years?: boolean;
 }
 
+/**
+ * Pension input for one prior tax year, for carry-forward.
+ */
+export interface PriorYearPensionInput {
+  /** e.g. "2023/24" */
+  taxYear: string;
+  /** Total pension input that year (employee + employer + DB input) */
+  totalPensionInput: number;
+  /** Whether the person was a member of a registered pension scheme that year */
+  wasMember: boolean;
+  /** That year's tapered Annual Allowance, if the taper applied */
+  taperedAA?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Main parent income interface
 // ---------------------------------------------------------------------------
@@ -339,10 +392,29 @@ export interface ParentIncome {
   mpaaTriggered: boolean;
 
   /**
-   * Prior year pension contribution history — used to calculate carry-forward.
-   * If not provided, the tool will note carry-forward capacity is unknown.
+   * @deprecated Use priorYears. Still honoured when priorYears is absent.
    */
   priorYearPensionAllowances: PriorYearPensionAllowances | null;
+
+  /**
+   * Pension inputs for the three prior tax years, for carry-forward. If
+   * neither this nor priorYearPensionAllowances is given, carry-forward is
+   * reported as unknown.
+   */
+  priorYears?: PriorYearPensionInput[];
+
+  /**
+   * Employer pension contributions for the year, NOT including salary
+   * sacrifice (which is legally an employer contribution but is entered
+   * separately). They count towards the Annual Allowance and adjusted income.
+   */
+  employerPensionContributions?: number;
+
+  /**
+   * Defined benefit pension input amount for the year, from the scheme's
+   * pension savings statement. Null or omitted if not in a DB scheme.
+   */
+  dbPensionInputAmount?: number | null;
 
   // ---- Location & personal flags ----------------------------------------
 
@@ -385,6 +457,18 @@ export interface ParentIncome {
   selfEmployed?: boolean;
 
   /**
+   * TRUE if the parent was over State Pension age at the start of the tax
+   * year. Class 4 NIC is then not payable.
+   */
+  statePensionAgeReached?: boolean;
+
+  /** How often the parent is paid. Class 1 NIC is worked out per pay period. Default monthly. */
+  payFrequency?: PayFrequency;
+
+  /** Company directors normally use an annual earnings period for Class 1 NIC. */
+  isDirector?: boolean;
+
+  /**
    * Contracted hours per week. Used to check that salary sacrifice does not
    * take pay below the National Minimum Wage. Defaults to 37.5.
    */
@@ -410,7 +494,7 @@ export interface ChildInfo {
   isDisabled: boolean;
 
   /**
-   * Optional annual childcare cost for this child BEFORE funded hours
+   * @deprecated Use childcareBill. Optional annual childcare cost for this child BEFORE funded hours
    * (what the provider would charge with no government funding).
    * If omitted, HouseholdInputs.estimatedAnnualChildcareSpend is split
    * evenly across children of Tax-Free Childcare age.
@@ -423,6 +507,33 @@ export interface ChildInfo {
    * hours then run until compulsory school age instead.
    */
   deferredReception?: boolean;
+
+  /**
+   * Route by which a 2-year-old qualifies for the 15 hours of extra-support
+   * funded childcare, if any. The first three are not income-tested; the
+   * benefits route has a low earned-income limit and is ignored (with a
+   * warning) if the parents earn above it. rules.md §2.2.2.
+   */
+  twoYearOldExtraSupport?: "dla" | "ehc_plan" | "looked_after_or_left_care" | "benefits_route" | null;
+
+  /**
+   * The childcare bill for this child BEFORE funded hours, either for the
+   * year (assumed spread evenly) or for each 3-month TFC period starting
+   * 6 April, 6 July, 6 October and 6 January. Supersedes annualChildcareCost.
+   */
+  childcareBill?: { annual: number } | { quarterly: [number, number, number, number] };
+
+  /** Whether the child usually lives with the claimant. TFC requires it. Default true. */
+  usuallyLivesWithYou?: boolean;
+}
+
+/** Things that rule out Tax-Free Childcare regardless of income. rules.md §2.3.2. */
+export interface TFCExclusions {
+  receivesUniversalCredit: boolean;
+  eitherParentReceivesChildcareVouchers: boolean;
+  receivesChildcareBursaryOrGrant: boolean;
+  /** Residence and right-to-reside conditions met. Default true. */
+  residenceConditionsConfirmed: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -485,7 +596,7 @@ export interface HouseholdInputs {
    * The family's nursery / provider hourly rate for each age band. A funded
    * hour saves the family what the provider would otherwise charge, so this
    * is what free hours are valued at. If not provided, the tool falls back to
-   * DEFAULT_LOCAL_HOURLY_RATES (national average funding rates), which usually
+   * the tax year's defaultProviderHourlyRates (national average funding rates), which usually
    * understates the value.
    */
   providerHourlyRates?: LocalHourlyRates;
@@ -501,9 +612,13 @@ export interface HouseholdInputs {
    */
   estimatedAnnualChildcareSpend: number;
 
+  /** Conditions that rule out Tax-Free Childcare. Omitted means none apply. */
+  tfcExclusions?: TFCExclusions;
+
   /**
-   * Optional ISO date (YYYY-MM-DD) to evaluate child ages and eligibility at.
-   * Defaults to today. Used by tests for deterministic results.
+   * Optional assessment date (YYYY-MM-DD) at which child ages and current
+   * eligibility are shown, clamped into the selected tax year. Defaults to
+   * today if it falls in that year, otherwise the middle of the year.
    */
   asOfDate?: string;
 }

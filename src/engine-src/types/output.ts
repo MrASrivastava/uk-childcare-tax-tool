@@ -59,7 +59,9 @@ export interface ANIBreakdown {
   biKIncome: number;                     // Total BiK income added
   biK_companyCar: number;
   biK_pmi: number;
-  biK_evSacrifice: number;              // BiK added back for EV salary sacrifice vehicle
+  biK_evSacrifice: number;              // Taxable value added back for the EV (BiK, or OpRA value above 75g/km)
+  /** Taxable value of OpRA benefits bought by salary sacrifice, added back to employment income */
+  opraTaxableValue: number;
   biK_other: number;
   cashAllowances: number;
   selfEmploymentProfit: number;
@@ -127,6 +129,8 @@ export interface IncomeTaxResult {
   personalAllowance: number;
   bands: TaxBandResult[];
   totalIncomeTax: number;
+  /** Annual Allowance charge included in totalIncomeTax */
+  annualAllowanceCharge: number;
   /** Tax reductions applied after the band calculation (rental finance costs) */
   taxReductions: number;
   /** Whether Scottish rates were applied */
@@ -136,6 +140,15 @@ export interface IncomeTaxResult {
 export interface NICResult {
   parentLabel: string;
   grossPayForNIC: number;             // Post-sacrifice cash earnings for Class 1 NIC (excludes BiKs)
+  /** Employee Class 1 NIC on employment earnings */
+  class1Employee: number;
+  /** Class 1 NIC in each pay period (a single entry for a director's annual earnings period) */
+  class1ByPeriod: number[];
+  /** Class 4 NIC on self-employed profits */
+  class4: number;
+  /** Class 1 + Class 4: all National Insurance the parent pays */
+  totalEmployeeNIC: number;
+  /** @deprecated Same as totalEmployeeNIC; kept for one release. */
   employeeNIC: number;
   /** For information only — employer's NIC saving from any salary sacrifice */
   employerNICSavingFromSacrifice: number;
@@ -223,6 +236,13 @@ export interface FreeHoursChildResult {
   universalAnnualValue: number;
   /** Incremental annual value of working parent entitlement vs universal */
   incrementalWorkingParentValue: number;
+
+  /**
+   * Value of funded hours in each term of the tax year (summer, autumn,
+   * spring): what the household receives now, and what it would receive
+   * with working-parent entitlement.
+   */
+  fundedValueByTerm: { received: [number, number, number]; withWorkingParent: [number, number, number] };
 }
 
 // ---------------------------------------------------------------------------
@@ -284,16 +304,25 @@ export interface HouseholdSummary {
 
 export interface PensionCapacity {
   parentLabel: string;
-  /** Annual Allowance for this tax year (standard or tapered) */
+  /** Annual Allowance for this tax year, after any taper (before the MPAA) */
   annualAllowance: number;
-  /** Total contributions made this year across all arrangements */
+  /** Total pension input this year: employee, employer and DB input */
   totalContributionsThisYear: number;
-  /** Remaining headroom in this year's Annual Allowance */
+  moneyPurchaseInput: number;
+  definedBenefitInput: number;
+  /** Threshold and adjusted income for the tapered Annual Allowance */
+  thresholdIncome: number;
+  adjustedIncome: number;
+  /** Remaining headroom in this year's Annual Allowance (MPAA-limited if triggered) */
   remainingHeadroomThisYear: number;
   /** Carry-forward available from prior 3 years (null if data not provided) */
   carryForwardAvailable: number | null;
-  /** Maximum additional contribution possible this year (headroom + carry-forward) */
+  /** Maximum additional contribution possible this year without a charge */
   maxAdditionalContribution: number | null;
+  /** Pension input above the allowances */
+  annualAllowanceExcess: number;
+  /** Tax on the excess (included in income tax) */
+  annualAllowanceCharge: number;
   /** Whether MPAA applies */
   mpaaApplies: boolean;
   /** Whether tapered AA applies */
@@ -405,6 +434,8 @@ export interface MarginalRateDataPoint {
 
 export interface CalculationResult {
   taxYear: TaxYear;
+  /** Jurisdiction the household was assessed under */
+  jurisdiction: import("./income").Jurisdiction;
   calculatedAt: string;                  // ISO timestamp
 
   parentA: {

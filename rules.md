@@ -103,7 +103,7 @@ Example: Member pays £8,000 net into a personal pension or SIPP → provider cl
 **Annual Allowance constraint:** Total pension contributions (employer + employee, all sources) must not exceed the Annual Allowance in any tax year:
 - Standard Annual Allowance 2025/26: £60,000
 - Money Purchase Annual Allowance (MPAA — triggered if flexible drawdown accessed): £10,000
-- Tapered Annual Allowance: applies where both threshold income > £200,000 AND adjusted income > £260,000. Minimum tapered allowance: £10,000.
+- Tapered Annual Allowance: applies where both threshold income > £200,000 AND adjusted income > £260,000. Minimum tapered allowance: £10,000. See §6.5.
 - Carry forward: up to 3 prior years' unused allowance may be added to current year's limit, subject to rules. Cannot carry forward if the MPAA has been triggered.
 
 **Important:** The tool must warn if a recommended pension contribution would breach the Annual Allowance or MPAA.
@@ -218,8 +218,16 @@ The same term-start rule applies for the 2-year-old and 3-year-old milestones.
 | Child's age | All families (disadvantaged only for 2yr) | Working parent eligible families |
 |---|---|---|
 | 9 months – 2 years (i.e. under 2) | 0 hours | **30 hours/week (term-time)** |
-| 2 years (exactly) | 15 hours/week (disadvantaged only) | **30 hours/week (term-time)** |
+| 2 years | 15 hours/week if the child gets extra support (see below) | **30 hours/week (term-time)** |
 | 3 years – school age | **15 hours/week (universal, all families)** | **30 hours/week (term-time)** |
+
+**2-year-olds with extra support.** A 2-year-old gets 15 hours a week, 38 weeks a year, from the term after they turn 2 and qualify until the term after they turn 3 (when the universal offer takes over), if the child:
+- gets Disability Living Allowance;
+- has an education, health and care (EHC) plan;
+- is looked after by a local authority, or has left care through adoption, a special guardianship order or a child arrangements order; or
+- is in a family getting certain benefits (the benefits route: for Universal Credit, household earned income of £15,400 a year or less).
+
+The first three are not income-tested, so those children keep 15 hours above the £100,000 cliff, and only 15 hours (not 30) are lost there. If the child also qualifies for the working-parent entitlement, the two combine to 30 hours, not 45. The tool ignores the benefits route, with a warning, when household earnings are above its limit. The TFC disability test (DLA, PIP or blind) is not the same, so the tool asks separately rather than inferring it.
 
 **Term-time definition:** 38 weeks per year minimum; maximum 52 weeks depending on provider. The statutory entitlement is **570 hours per year** (30 hours × 38 weeks = 1,140 hours capped at 570 for the base universal entitlement, 1,140 for the full working parent entitlement). Providers may stretch the hours across more weeks at fewer hours per week.
 
@@ -288,9 +296,11 @@ If the user does not enter their provider's rate, the tool falls back to the 202
 
 **Child's age:** A child is eligible until the **1 September after their 11th birthday** (16th birthday for disabled children).
 
+**The child** must usually live with the claimant. The tool leaves out children marked as not living with the parents.
+
 **Incompatible with:**
-- Universal Credit
-- Tax Credits (Working Tax Credit or Child Tax Credit)
+- Universal Credit (tax credits closed in April 2025, so this is now the main case)
+- A childcare bursary or grant
 - Childcare vouchers (legacy scheme, closed to new entrants October 2018; existing voucher holders continue separately)
 - Employer-supported childcare vouchers
 
@@ -314,6 +324,9 @@ TFC top-up per child  = Σ over eligible 3-month periods of min(20% × bill for 
 - The cap is per child account (£500 per 3 months, £1,000 for disabled children); it is **not pooled** across children
 - Maximum value = £2,000/year/child (£4,000 for disabled children), reached when the bill paid is £10,000/year per child (£20,000 for disabled children)
 - A child who ages out part-way through the year is counted only for the periods in which they are eligible
+- Bills are entered per child, for the year (assumed spread evenly) or for each 3-month period; the household figure is split evenly across children only as a fallback, with a warning
+- Funded hours are subtracted period by period: the summer term falls in the April period, a third of the autumn term in the July period and the rest in the October period, and the spring term in the January period
+- The eligible status says it covers "the income and age tests this tool checks"; any exclusion (Universal Credit, vouchers, a bursary, residence) makes the household not eligible and names the reason
 
 ---
 
@@ -524,6 +537,18 @@ Net cash impact: lease is effectively funded at £6,000 − 40% tax saving − 2
 
 **No BiK:** Provided the bike is used primarily for qualifying journeys (commuting), there is no P11D BiK charge.
 
+### 4.5a Other salary sacrifice and the OpRA rules
+
+Under the optional remuneration arrangement (OpRA) rules (ITEPA 2003 s.69A), when salary is given up for a benefit the taxable value is generally the higher of the salary forgone and the benefit's normal value. For income tax and ANI the sacrifice therefore mostly unwinds; employee Class 1 is still saved, but the employer pays Class 1A instead of saving Class 1.
+
+| Kind | ANI / income tax | Employee Class 1 | Employer NIC saving |
+|---|---|---|---|
+| Pay reduction (e.g. buying holiday) | − amount | − amount | 15% of amount |
+| OpRA benefit (gym, technology, dental…) | − forgone + max(forgone, benefit value) | − forgone | none (Class 1A instead) |
+| Excluded benefit (workplace childcare, pension advice) | − amount | − amount | 15% of amount |
+
+Pension contributions, cycle-to-work and cars at 75g/km CO2 or less are outside OpRA and keep the full advantage. A car above 75g/km (most hybrids) is taxed at the higher of the salary given up and the BiK. A bare "other" amount is treated conservatively as an OpRA benefit worth the salary forgone, so it never wrongly reduces ANI.
+
 ### 4.6 Bonus Deferral
 
 **Mechanism:** If ANI is projected to exceed a threshold in the current tax year due to a discretionary bonus, the employer may be asked to defer the bonus payment to the following tax year.
@@ -591,7 +616,7 @@ Scottish rates and bands apply to **non-savings income only**. Savings and divid
 
 **Scotland and childcare:** Scotland has its own childcare entitlement scheme (1,140 hours/year = 30 hours/week for 38 weeks, from age 3). Different funding rates and administration. The £100,000 ANI threshold for TFC applies UK-wide. The free hours threshold: the Scottish scheme has slightly different eligibility rules — the tool must clearly flag jurisdiction.
 
-### 5.3 National Insurance Contributions (Class 1 Employee, 2025/26)
+### 5.3 National Insurance Contributions (2025/26 and 2026/27)
 
 | Band | Rate |
 |---|---|
@@ -602,6 +627,10 @@ Scottish rates and bands apply to **non-savings income only**. Savings and divid
 **Impact of salary sacrifice on NIC:** NIC is calculated on post-sacrifice gross pay. All salary sacrifice arrangements reduce NIC at the applicable rate on the sacrificed amount.
 
 **Benefits in kind** are not subject to employee Class 1 NIC; the employer pays Class 1A NIC on them. Net pay arrangement pension contributions do not reduce the NIC base.
+
+**Earnings periods.** Employee Class 1 is worked out per earnings period, using that period's published thresholds (2025/26 and 2026/27 monthly: primary threshold £1,048, UEL £4,189; weekly £242 / £967). A bonus counts in the period it is paid, and an RSU vest in the period it is processed. Directors normally have an annual earnings period. The tool spreads base pay evenly, puts a bonus in its payment month (or spreads it, with a warning, if the month is unknown) and each RSU vest in the tax month of its vest date. Example: £40,000 salary plus a £30,000 bonus paid in month 9 costs about £2,845, against £3,411 on an annual basis.
+
+**Class 4 (self-employed).** Charged on the year's profits: 6% between the lower profits limit (£12,570) and upper profits limit (£50,270), 2% above. Worked out independently of any Class 1. Not payable by someone over State Pension age at the start of the tax year. Class 2 is no longer payable: since April 2024 the self-employed get an NI credit above the small profits threshold without paying. Where employment earnings alone exceed the UEL and there are also profits, the annual maximum may cap the combined liability; the tool warns rather than applying it.
 
 ### 5.4 Savings and dividend income
 
@@ -669,30 +698,38 @@ For ANI:
   ANI addition = V − T (net of transferred employer NIC)
 ```
 
-### 6.5 Pension Annual Allowance — Tapered Allowance
+### 6.5 Pension Annual Allowance — inputs, taper and charge
 
-Tapered Annual Allowance applies where:
-- **Threshold income** > £200,000 AND
-- **Adjusted income** > £260,000
+**Pension input** for the year is the sum of:
+- employee contributions by every route (salary sacrifice, net pay, relief at source grossed up);
+- employer contributions (salary sacrifice is legally an employer contribution; the tool collects other employer contributions separately so it isn't counted twice);
+- the defined benefit pension input amount, from the scheme's pension savings statement.
 
-Threshold income = net income (Step 1 of ANI calculation) excluding pension contributions made under net pay arrangements.
-Adjusted income = threshold income + employer pension contributions.
+The tool treats salary sacrifice and employer contributions as money purchase inputs, and assumes net pay contributions go to the DB scheme when a DB input amount is given.
 
-Where tapered allowance applies:
+**Taper** (PTM057100). The allowance falls by £1 for every £2 of adjusted income over £260,000, only if threshold income exceeds £200,000, to a minimum of £10,000.
+- **Threshold income** = net income − gross relief-at-source contributions + pension salary sacrifice set up after 8 July 2015.
+- **Adjusted income** = net income + net pay member contributions + employer contributions (including salary sacrifice) + for DB, the pension input amount less member contributions.
+
 ```
-Tapered AA = max(60000 − (adjusted_income − 260000) ÷ 2, 10000)
+Tapered AA = max(60000 − floor((adjusted_income − 260000) ÷ 2), 10000)
 ```
 
-The tool must check both threshold income AND adjusted income before recommending pension contributions near these levels.
+Examples: threshold £250k, adjusted £300k → £40k. Adjusted £360k or more → £10k. Threshold £190k → no taper, whatever the adjusted income.
+
+For 2022/23 the figures were an allowance of £40,000, taper from £240,000 adjusted income, and a £4,000 minimum.
+
+**Carry-forward.** The current year's allowance is used first, then unused allowance from the three prior years, oldest first. Each year contributes up to its own allowance (tapered, if it was), and only if the person was a member of a registered scheme that year. With no prior inputs and membership throughout, carry-forward into 2025/26 is £60,000 + £60,000 + £40,000 = £160,000.
+
+**Annual Allowance charge.** Pension input above the available allowance is taxed as the top slice of income at the non-savings rates (Scottish rates for Scottish taxpayers). The tool adds it to income tax, so take-home and the optimiser's scenarios include it. A recommended contribution above the headroom is flagged with its charge.
 
 ### 6.6 MPAA (Money Purchase Annual Allowance)
 
 Once a person has flexibly accessed a money purchase pension (e.g. drawn down a lump sum from a SIPP), the MPAA is triggered. From that point:
-- The allowance for money purchase (defined contribution) contributions = **£10,000** (not £60,000)
-- Carry forward rules do **not** apply to money purchase contributions after MPAA is triggered
-- The remaining £50,000 of the standard AA may be used for defined benefit pension accrual only
+- If money purchase inputs exceed the MPAA (**£10,000**), the excess over £10,000 is chargeable, with no carry-forward. Other (DB) inputs are then tested against the **alternative allowance** (the allowance less £10,000, so £50,000 untapered), which can use carry-forward.
+- If money purchase inputs are within the MPAA, the normal allowance applies to all inputs. Example: MP £8,000 + DB £55,000 = £63,000 against £60,000 → excess £3,000.
 
-**Tool implementation:** Include a flag "Have you ever flexibly accessed a pension?" If yes, apply MPAA rules and warn before recommending large pension contributions.
+**Tool implementation:** a flag "Have you ever flexibly accessed a pension?" applies these rules, and headroom for further money purchase contributions is limited to what is left of the £10,000.
 
 ### 6.7 Jurisdictional Differences Summary
 

@@ -15,17 +15,16 @@ import type {
   IncomeTaxResult,
   NICResult,
   PersonalAllowanceResult,
-  PensionCapacity,
   AtRiskThreshold,
 } from "../types/output";
-import { getTaxYearConfig, DEFAULT_LOCAL_HOURLY_RATES } from "../types/constants";
+import { getTaxYearConfig } from "../types/constants";
 import {
   calculateANI,
   calculatePersonalAllowance,
   calculateIncomeTax,
   calculateEmployeeNIC,
-  calculatePensionCarryForward,
-  totalPensionContributionsThisYear,
+  calculateClass4NIC,
+  calculateSalarySacrifice,
 } from "./ani";
 import {
   parentWorkingEligibilityFlag,
@@ -36,8 +35,58 @@ import {
   isTFCEligibleChild,
   tfcQuarterStarts,
   tfcTopUpValue,
+  termsToTFCQuarters,
 } from "./eligibility";
 import { computeOptimisationRecommendations } from "./optimiser";
+import { annualAllowanceTest, buildPensionCapacity } from "./pensions";
+
+function clampDate(d: Date, min: Date, max: Date): Date {
+  return d < min ? min : d > max ? max : d;
+}
+
+/**
+ * National Insurance for one parent: Class 1 on employment earnings and
+ * Class 4 on self-employed profits, worked out independently.
+ *
+ * rules.md §5.3.
+ */
+function buildNICResult(
+  parent: import("../types/income").ParentIncome,
+  config: import("../types/constants").TaxYearConfig,
+  warnings: string[]
+): NICResult {
+  const class1 = calculateEmployeeNIC(parent, config);
+  warnings.push(...class1.warnings);
+  const class4 = calculateClass4NIC(parent, config);
+
+  // The annual maximum can cap combined Class 1 and Class 4 when both are
+  // substantial. It only binds when employment earnings alone exceed the UEL
+  // and there are profits above the lower profits limit, so warn then.
+  const uel = config.employeeNICBands[config.employeeNICBands.length - 1].from;
+  if (class1.employmentIncomeForNIC > uel && parent.selfEmploymentProfit > config.class4NIC.lowerProfitsLimit && class4 > 0) {
+    warnings.push(
+      `${parent.label} pays both Class 1 and Class 4 National Insurance on substantial earnings. ` +
+      "The annual maximum rules may reduce the combined amount; this tool does not apply them."
+    );
+  }
+
+  // Employer NIC is saved on salary sacrifice, except on OpRA benefits (where
+  // Class 1A replaces it) and cars above 75g/km. rules.md §4.1.
+  const sacrifice = calculateSalarySacrifice(parent, config);
+  warnings.push(...sacrifice.warnings);
+
+  const total = class1.employeeNIC + class4;
+  return {
+    parentLabel: parent.label,
+    grossPayForNIC: class1.employmentIncomeForNIC,
+    class1Employee: class1.employeeNIC,
+    class1ByPeriod: class1.byPeriod,
+    class4,
+    totalEmployeeNIC: total,
+    employeeNIC: total,
+    employerNICSavingFromSacrifice: sacrifice.employerNICSavingBase * config.employerNICRate,
+  };
+}
 
 /**
  * Whether a parent has income that requires a Self Assessment return anyway
@@ -46,47 +95,6 @@ import { computeOptimisationRecommendations } from "./optimiser";
  */
 function filesSelfAssessment(parent: import("../types/income").ParentIncome): boolean {
   return parent.selfEmploymentProfit > 0 || parent.rentalIncomeNet > 0;
-}
-
-// ---------------------------------------------------------------------------
-// Pension capacity helper
-// ---------------------------------------------------------------------------
-
-function buildPensionCapacity(
-  parent: { label: string } & import("../types/income").ParentIncome,
-  config: import("../types/constants").TaxYearConfig
-): PensionCapacity {
-  const aa = parent.mpaaTriggered ? config.pension.mpaaAllowance : config.pension.annualAllowance;
-  const totalContributions = totalPensionContributionsThisYear(parent);
-  const remainingHeadroom = Math.max(aa - totalContributions, 0);
-  const carryForward = calculatePensionCarryForward(parent, config);
-  const maxAdditional = carryForward !== null ? remainingHeadroom + carryForward : null;
-
-  const warnings: string[] = [];
-  if (parent.mpaaTriggered) {
-    warnings.push(`MPAA applies: DC pension contributions capped at £${config.pension.mpaaAllowance.toLocaleString()}/year.`);
-  }
-  if (totalContributions > aa) {
-    warnings.push(`Total pension contributions (£${Math.round(totalContributions).toLocaleString()}) exceed Annual Allowance (£${aa.toLocaleString()}). An AA charge may be due.`);
-  }
-  if (carryForward === null) {
-    warnings.push("Prior-year contribution data not provided — carry-forward cannot be calculated.");
-  }
-
-  // Check tapered AA (simplified — full check requires employer contributions)
-  const taperedAAApplies = false; // Would require employer contribution data to compute accurately
-
-  return {
-    parentLabel: parent.label,
-    annualAllowance: aa,
-    totalContributionsThisYear: totalContributions,
-    remainingHeadroomThisYear: remainingHeadroom,
-    carryForwardAvailable: carryForward,
-    maxAdditionalContribution: maxAdditional,
-    mpaaApplies: parent.mpaaTriggered,
-    taperedAAApplies,
-    warnings,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +125,7 @@ function buildPensionCapacity(
  * represents the marginal "cost" of crossing the threshold.
  */
 export function generateMarginalRateChart(
-  _parent: import("../types/income").ParentIncome,
+  parent: import("../types/income").ParentIncome,
   config: import("../types/constants").TaxYearConfig,
   grossChildBenefit: number,
   freeHoursIncrementalValue: number,
@@ -125,6 +133,15 @@ export function generateMarginalRateChart(
 ): import("../types/output").MarginalRateDataPoint[] {
   const points: import("../types/output").MarginalRateDataPoint[] = [];
   const STEP = 1_000;
+  const employment =
+    parent.grossSalary + parent.bonus.expectedThisYear + parent.cashAllowances +
+    parent.rsuVests.reduce((sum, v) => sum + v.grossValue, 0);
+  const mainlySelfEmployed = parent.selfEmploymentProfit > 0 && parent.selfEmploymentProfit >= employment;
+  const nicBandRate = (income: number) => {
+    let rate = 0;
+    for (const band of config.employeeNICBands) if (income > band.from) rate = band.rate;
+    return rate;
+  };
   const CLIFF = config.freeHours.maximumANIThreshold; // £100,000
 
   for (let ani = 50_000; ani <= 135_000; ani += STEP) {
@@ -142,9 +159,15 @@ export function generateMarginalRateChart(
     else                   itRate = 0.00;
 
     // ---- NIC marginal rate --------------------------------------------------
-    // Class 1 employee NIC on employment income. ANI used as proxy.
-    // UEL = £50,270: above = 2%, between PT and UEL = 8%.
-    const nicRate = ani < 50_270 ? 0.08 : 0.02;
+    // Class 1 on employment income, or Class 4 when the parent's income is
+    // mainly self-employed profit. ANI is used as a proxy for the NIC base.
+    const nicRate = mainlySelfEmployed
+      ? ani <= config.class4NIC.lowerProfitsLimit
+        ? 0
+        : ani <= config.class4NIC.upperProfitsLimit
+        ? config.class4NIC.mainRate
+        : config.class4NIC.additionalRate
+      : nicBandRate(ani);
 
     // ---- PA taper effect ----------------------------------------------------
     // In the taper zone each £2 of income removes £1 of PA, which itself was
@@ -248,15 +271,20 @@ export function computeCrossoverANI(
  */
 export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   const config = getTaxYearConfig(inputs.taxYear);
-  const localRates = inputs.providerHourlyRates ?? inputs.localHourlyRates ?? DEFAULT_LOCAL_HOURLY_RATES;
+  const localRates = inputs.providerHourlyRates ?? inputs.localHourlyRates ?? config.defaultProviderHourlyRates;
   // Date at which current status (age groups, eligible child counts) is shown:
-  // asOfDate or today, clamped into the selected tax year so that choosing a
-  // past or future year uses the children's ages in that year. Annual values
-  // are built up term by term / quarter by quarter across the tax year.
-  const today = inputs.asOfDate ? new Date(inputs.asOfDate + "T00:00:00Z") : new Date();
-  const taxYearStart = new Date(Date.UTC(parseInt(inputs.taxYear.slice(0, 4), 10), 3, 6));
-  const taxYearEnd = new Date(Date.UTC(parseInt(inputs.taxYear.slice(0, 4), 10) + 1, 3, 5));
-  const referenceDate = today < taxYearStart ? taxYearStart : today > taxYearEnd ? taxYearEnd : today;
+  // asOfDate if given; otherwise today if it falls in the selected tax year,
+  // or the middle of the year (5 October) if it doesn't. Annual values are
+  // built up term by term / quarter by quarter across the tax year.
+  const startYear = parseInt(inputs.taxYear.slice(0, 4), 10);
+  const taxYearStart = new Date(Date.UTC(startYear, 3, 6));
+  const taxYearEnd = new Date(Date.UTC(startYear + 1, 3, 5));
+  const today = new Date();
+  const referenceDate = inputs.asOfDate
+    ? clampDate(new Date(inputs.asOfDate + "T00:00:00Z"), taxYearStart, taxYearEnd)
+    : today >= taxYearStart && today <= taxYearEnd
+    ? today
+    : new Date(Date.UTC(startYear, 9, 5));
 
   const warnings: string[] = [];
 
@@ -292,8 +320,13 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   // ---- Steps 5b–5c: Income tax and NIC per parent --------------------------
-  const parentAITCalc = calculateIncomeTax(parentAANIBreakdown, parentAPA, inputs.parentA, config);
-  const parentANICCalc = calculateEmployeeNIC(inputs.parentA, config);
+  // ---- Annual Allowance (feeds the income tax figure via the AA charge) -----
+  const parentAAA = annualAllowanceTest(inputs.parentA, parentAANIBreakdown, config);
+  const parentBAA = inputs.parentB && parentBANIBreakdown
+    ? annualAllowanceTest(inputs.parentB, parentBANIBreakdown, config)
+    : null;
+
+  const parentAITCalc = calculateIncomeTax(parentAANIBreakdown, parentAPA, inputs.parentA, config, parentAAA.excess);
 
   const parentAITResult: IncomeTaxResult = {
     parentLabel: inputs.parentA.label,
@@ -301,34 +334,23 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     personalAllowance: parentAPA,
     bands: parentAITCalc.bands,
     totalIncomeTax: parentAITCalc.totalIncomeTax,
+    annualAllowanceCharge: parentAITCalc.annualAllowanceCharge,
     taxReductions: parentAITCalc.taxReductions,
     scottishRatesApplied: inputs.parentA.scotlandResident,
   };
 
-  // Employer NIC is saved on ALL salary sacrifice, not just pension.
-  // rules.md §4.1: employer NIC saved at 15% on all sacrificed amounts.
-  const parentATotalSacrifice =
-    inputs.parentA.salarySacrifice.pension +
-    (inputs.parentA.salarySacrifice.ev?.annualLeaseCost ?? 0) +
-    inputs.parentA.salarySacrifice.cycleToWork +
-    inputs.parentA.salarySacrifice.other;
-
-  const parentANICResult: NICResult = {
-    parentLabel: inputs.parentA.label,
-    grossPayForNIC: parentANICCalc.employmentIncomeForNIC,
-    employeeNIC: parentANICCalc.employeeNIC,
-    employerNICSavingFromSacrifice: parentATotalSacrifice * config.employerNICRate,
-  };
+  const parentANICResult = buildNICResult(inputs.parentA, config, warnings);
 
   const parentBITResult: IncomeTaxResult | null = inputs.parentB && parentBANI !== null && parentBPA !== null
     ? (() => {
-        const calc = calculateIncomeTax(parentBANIBreakdown!, parentBPA, inputs.parentB, config);
+        const calc = calculateIncomeTax(parentBANIBreakdown!, parentBPA, inputs.parentB, config, parentBAA?.excess ?? 0);
         return {
           parentLabel: inputs.parentB.label,
           taxableIncome: calc.taxableIncome,
           personalAllowance: parentBPA,
           bands: calc.bands,
           totalIncomeTax: calc.totalIncomeTax,
+          annualAllowanceCharge: calc.annualAllowanceCharge,
           taxReductions: calc.taxReductions,
           scottishRatesApplied: inputs.parentB.scotlandResident,
         };
@@ -336,26 +358,13 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   const parentBNICResult: NICResult | null = inputs.parentB
-    ? (() => {
-        const calc = calculateEmployeeNIC(inputs.parentB, config);
-        return {
-          parentLabel: inputs.parentB.label,
-          grossPayForNIC: calc.employmentIncomeForNIC,
-          employeeNIC: calc.employeeNIC,
-          employerNICSavingFromSacrifice: (
-            inputs.parentB.salarySacrifice.pension +
-            (inputs.parentB.salarySacrifice.ev?.annualLeaseCost ?? 0) +
-            inputs.parentB.salarySacrifice.cycleToWork +
-            inputs.parentB.salarySacrifice.other
-          ) * config.employerNICRate,
-        };
-      })()
+    ? buildNICResult(inputs.parentB, config, warnings)
     : null;
 
   // ---- Pension capacity ---------------------------------------------------
-  const parentAPensionCapacity = buildPensionCapacity(inputs.parentA, config);
+  const parentAPensionCapacity = buildPensionCapacity(inputs.parentA, parentAAA, parentAITResult.annualAllowanceCharge, config);
   const parentBPensionCapacity = inputs.parentB
-    ? buildPensionCapacity(inputs.parentB, config)
+    ? buildPensionCapacity(inputs.parentB, parentBAA!, parentBITResult?.annualAllowanceCharge ?? 0, config)
     : null;
 
   // ---- Step 5d: Working parent eligibility flags --------------------------
@@ -370,7 +379,25 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   // ---- Step 6: Free hours per child ----------------------------------------
-  const freeHoursChildren = inputs.children.map((child, i) =>
+  // The benefits route into the 2-year-old extra-support hours is income
+  // tested; ignore it (with a warning) when the household clearly earns more.
+  const earned = (p: typeof inputs.parentA) =>
+    calculateSalarySacrifice(p, config).postSacrificeSalary + p.bonus.expectedThisYear +
+    p.cashAllowances + p.selfEmploymentProfit;
+  const householdEarned = earned(inputs.parentA) + (inputs.parentB ? earned(inputs.parentB) : 0);
+  const childrenForHours = inputs.children.map((child, i) => {
+    if (child.twoYearOldExtraSupport === "benefits_route" && householdEarned > config.freeHours.benefitsRouteEarnedIncomeLimit) {
+      warnings.push(
+        `Child ${i + 1}: the benefits route to 15 hours for 2-year-olds has an earned income limit of ` +
+        `£${config.freeHours.benefitsRouteEarnedIncomeLimit.toLocaleString("en-GB")} a year, which this household is above. ` +
+        "It has been ignored."
+      );
+      return { ...child, twoYearOldExtraSupport: null };
+    }
+    return child;
+  });
+
+  const freeHoursChildren = childrenForHours.map((child, i) =>
     computeFreeHoursForChild(
       child,
       i,
@@ -393,23 +420,40 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   );
 
   // ---- Step 7: TFC eligibility --------------------------------------------
-  // Each child's childcare cost before funded hours: the per-child figure if
-  // given, otherwise the household figure split across TFC-eligible children.
+  // Each child's childcare bill before funded hours, per TFC period: the
+  // child's own bill if given (quarterly, or annual spread evenly), otherwise
+  // the household figure split evenly across TFC-age children who live with
+  // the parents.
   const quarterStarts = tfcQuarterStarts(config);
-  const tfcAgeChildren = inputs.children.filter(
-    (c) => c.annualChildcareCost === undefined && quarterStarts.some((q) => isTFCEligibleChild(c, q, config))
+  const ownBill = (c: typeof inputs.children[number]): number[] | null =>
+    c.childcareBill
+      ? "quarterly" in c.childcareBill
+        ? [...c.childcareBill.quarterly]
+        : new Array(4).fill(c.childcareBill.annual / 4)
+      : c.annualChildcareCost !== undefined
+      ? new Array(4).fill(c.annualChildcareCost / 4)
+      : null;
+  const sharing = inputs.children.filter(
+    (c) => ownBill(c) === null && c.usuallyLivesWithYou !== false && quarterStarts.some((q) => isTFCEligibleChild(c, q, config))
   );
-  const explicitCosts = inputs.children.reduce((sum, c) => sum + (c.annualChildcareCost ?? 0), 0);
-  const sharedCost = tfcAgeChildren.length > 0
-    ? Math.max(inputs.estimatedAnnualChildcareSpend - explicitCosts, 0) / tfcAgeChildren.length
-    : 0;
-  const childCosts = inputs.children.map((c) =>
-    c.annualChildcareCost ?? (tfcAgeChildren.includes(c) ? sharedCost : 0)
+  const explicitTotal = inputs.children.reduce((sum, c) => sum + (ownBill(c)?.reduce((a, b) => a + b, 0) ?? 0), 0);
+  const sharedAnnual = sharing.length > 0 ? Math.max(inputs.estimatedAnnualChildcareSpend - explicitTotal, 0) / sharing.length : 0;
+  if (sharing.length > 1 && sharedAnnual > 0) {
+    warnings.push(
+      `The childcare fees of £${Math.round(inputs.estimatedAnnualChildcareSpend - explicitTotal).toLocaleString("en-GB")} have been split evenly ` +
+      `across ${sharing.length} children for Tax-Free Childcare, which is capped per child. Enter each child's bill for a more accurate top-up.`
+    );
+  }
+  const childQuarterCosts = inputs.children.map((c) =>
+    ownBill(c) ?? (sharing.includes(c) ? new Array(4).fill(sharedAnnual / 4) : [0, 0, 0, 0])
   );
   // TFC pays 20% of what the parents pay, i.e. the bill after funded hours
-  const childBills = childCosts.map((cost, i) =>
-    Math.max(cost - freeHoursChildren[i].workingParentAnnualValue, 0)
-  );
+  const billsAfter = (funded: (i: number) => [number, number, number]) =>
+    childQuarterCosts.map((costs, i) => {
+      const fundedQ = termsToTFCQuarters(funded(i));
+      return costs.map((cost, q) => Math.max(cost - fundedQ[q], 0));
+    });
+  const childQuarterBills = billsAfter((i) => freeHoursChildren[i].fundedValueByTerm.received);
 
   const tfc = computeTFCEligibility(
     parentAANI,
@@ -417,9 +461,10 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     parentAMinIncome,
     parentBMinIncome,
     inputs.children,
-    childBills,
+    childQuarterBills,
     config,
-    referenceDate
+    referenceDate,
+    inputs.tfcExclusions
   );
 
   // ---- Step 8: Child Benefit / HICBC --------------------------------------
@@ -469,14 +514,14 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   const parentANetTakeHome =
     parentAANIBreakdown.step1NetIncome -
     parentAITResult.totalIncomeTax -
-    parentANICResult.employeeNIC -
+    parentANICResult.totalEmployeeNIC -
     inputs.parentA.personalPensionContributions.reliefAtSourceNet -
     inputs.parentA.giftAidDonationsNet;
 
   const parentBNetTakeHome = inputs.parentB && parentBITResult && parentBNICResult && parentBANIBreakdown
     ? parentBANIBreakdown.step1NetIncome -
       parentBITResult.totalIncomeTax -
-      parentBNICResult.employeeNIC -
+      parentBNICResult.totalEmployeeNIC -
       inputs.parentB.personalPensionContributions.reliefAtSourceNet -
       inputs.parentB.giftAidDonationsNet
     : 0;
@@ -500,9 +545,7 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   // with working-parent entitlement.
   const potentialTFCMaxTopUp = tfcTopUpValue(
     inputs.children,
-    childCosts.map((cost, i) =>
-      Math.max(cost - freeHoursChildren[i].universalAnnualValue - freeHoursChildren[i].incrementalWorkingParentValue, 0)
-    ),
+    billsAfter((i) => freeHoursChildren[i].fundedValueByTerm.withWorkingParent),
     config
   ).estimatedTopUp;
 
@@ -624,6 +667,7 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
 
   return {
     taxYear: inputs.taxYear,
+    jurisdiction: inputs.jurisdiction,
     calculatedAt: new Date().toISOString(),
 
     parentA: {

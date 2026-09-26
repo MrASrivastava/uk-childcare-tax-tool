@@ -63,6 +63,7 @@ describe("employee NIC base (#7)", () => {
         },
       }),
     }));
-    expect(r.parentA.nic.employeeNIC).toBeCloseTo(2_194.4, 2);
+    // £2,194.40 on an annual basis; per monthly period within £5
+    expect(Math.abs(r.parentA.nic.employeeNIC - 2_194.4)).toBeLessThan(5);
   });
 });

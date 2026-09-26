@@ -28,11 +28,17 @@ describe("TFC top-up (#3)", () => {
     expect(r.tfc.estimatedActualTopUpAnnual).toBe(0);
   });
 
-  it("uses the bill after funded hours", () => {
+  it("uses the bill after funded hours, quarter by quarter", () => {
+    // Aged 3–4 all year: funded hours are worth 30 × 38/3 × £6.42 a term. The
+    // autumn term is split a third / two thirds across the July and October
+    // periods, so the quarterly bills are uneven and the July cap binds.
     const r = calculate(household({ ...couple, children: [child("2022-01-15")], estimatedAnnualChildcareSpend: 15_000 }));
-    const funded = r.freeHours.children[0].workingParentAnnualValue;
-    expect(funded).toBeGreaterThan(0);
-    expect(r.tfc.estimatedActualTopUpAnnual).toBeCloseTo(Math.min((15_000 - funded) * 0.2, 2_000), 2);
+    const term = 30 * (38 / 3) * 6.42;
+    const funded = [term, term / 3, (term * 2) / 3, term];
+    const expected = funded.reduce((sum, f) => sum + Math.min((3_750 - f) * 0.2, 500), 0);
+    expect(r.tfc.estimatedActualTopUpAnnual).toBeCloseTo(expected, 2);
+    // Less than 20% of the annual bill after funded hours, because the cap binds in July
+    expect(r.tfc.estimatedActualTopUpAnnual).toBeLessThan((15_000 - 3 * term) * 0.2);
   });
 });
 

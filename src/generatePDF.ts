@@ -21,6 +21,7 @@
 import jsPDF from "jspdf";
 import type { CalculationResult } from "./engine-src/index";
 import { getTaxYearConfig } from "./engine-src/index";
+import { pdfCoverSubtitle, pdfPageHeader } from "./pdfText";
 
 // ---------------------------------------------------------------------------
 // Colours
@@ -93,8 +94,10 @@ class Doc {
   y: number;
   pageNum: number;
   _pageTitle: string;
+  headerText: string;
 
-  constructor() {
+  constructor(headerText: string) {
+    this.headerText = headerText;
     this.pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     this.y = 0;
     this.pageNum = 0;
@@ -112,7 +115,7 @@ class Doc {
     this.pdf.setFont("helvetica", "bold");
     this.pdf.setFontSize(8);
     this.pdf.setTextColor(...WHITE);
-    this.pdf.text("UK Childcare Tax Tool  2025/26", ML, 6.5);
+    this.pdf.text(this.headerText, ML, 6.5);
     if (title) this.pdf.text(title, PAGE_W - ML, 6.5, { align: "right" });
 
     // Footer
@@ -490,7 +493,7 @@ function drawIncomeSplitChart(d: Doc, r: CalculationResult) {
 
     const sacrifice = a.ani.totalSalarySacrifice;
     const tax       = a.incomeTax.totalIncomeTax;
-    const nic       = a.nic.employeeNIC;
+    const nic       = a.nic.totalEmployeeNIC;
     const takeHome  = Math.max(0, th);
     const total     = sacrifice + tax + nic + takeHome;
 
@@ -562,7 +565,7 @@ function drawCover(d: Doc, r: CalculationResult) {
   d.pdf.setFont("helvetica", "normal");
   d.pdf.setFontSize(10);
   d.pdf.setTextColor(148, 163, 184);
-  d.pdf.text("Personal Assessment  |  Tax Year 2025/26  |  England", ML, 38);
+  d.pdf.text(pdfCoverSubtitle(r), ML, 38);
   d.pdf.setFontSize(8);
   const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
   d.pdf.text(`Generated: ${today}`, PAGE_W - ML, 38, { align: "right" });
@@ -710,6 +713,7 @@ function drawANI(d: Doc, r: CalculationResult) {
       ...(ani.bonusIncome > 0       ? [["Bonus",                  ani.bonusIncome]       as [string,number]] : []),
       ...(ani.rsuIncome > 0         ? [["RSU vests",              ani.rsuIncome]         as [string,number]] : []),
       ...(ani.biKIncome > 0         ? [["Benefits in kind (P11D)",ani.biKIncome]         as [string,number]] : []),
+      ...(ani.opraTaxableValue > 0  ? [["Sacrificed benefits (taxable value)", ani.opraTaxableValue] as [string,number]] : []),
       ...(ani.cashAllowances > 0    ? [["Cash allowances",        ani.cashAllowances]    as [string,number]] : []),
       ...(ani.savingsInterestNonISA > 0 ? [["Non-ISA savings interest",ani.savingsInterestNonISA] as [string,number]] : []),
       ...(ani.dividendsNonISA > 0   ? [["Non-ISA dividends",      ani.dividendsNonISA]   as [string,number]] : []),
@@ -755,7 +759,8 @@ function drawANI(d: Doc, r: CalculationResult) {
 
     d.hr();
     d.kvRow("Income tax", fmtGBP(a.incomeTax.totalIncomeTax), RED);
-    d.kvRow("Employee NIC", fmtGBP(a.nic.employeeNIC), RED);
+    d.kvRow("National Insurance (Class 1)", fmtGBP(a.nic.class1Employee), RED);
+    if (a.nic.class4 > 0) d.kvRow("National Insurance (Class 4)", fmtGBP(a.nic.class4), RED);
     d.kvRow("Net take-home", fmtGBP(th), GREEN);
     d.gap(6);
   }
@@ -893,7 +898,8 @@ function drawPension(d: Doc, r: CalculationResult) {
     d.y += 10;
 
     d.kvRow("Annual Allowance", fmtGBP(cap.annualAllowance), cap.mpaaApplies ? RED : NAVY);
-    d.kvRow("Total contributions this year", fmtGBP(cap.totalContributionsThisYear));
+    d.kvRow("Pension input this year", fmtGBP(cap.totalContributionsThisYear));
+    if (cap.annualAllowanceCharge > 0) d.kvRow("Annual Allowance charge", fmtGBP(cap.annualAllowanceCharge), RED);
     d.kvRow("Remaining headroom", fmtGBP(cap.remainingHeadroomThisYear), cap.remainingHeadroomThisYear > 0 ? GREEN : RED);
     if (cap.carryForwardAvailable != null) d.kvRow("Carry-forward available (3yr)", fmtGBP(cap.carryForwardAvailable), PURPLE);
     if (cap.maxAdditionalContribution != null && cap.maxAdditionalContribution > 0) {
@@ -1146,7 +1152,7 @@ function drawRateTable(d: Doc, r: CalculationResult) {
 // Main export
 // ===========================================================================
 export function generateReport(result: CalculationResult): void {
-  const d = new Doc();
+  const d = new Doc(pdfPageHeader(result));
   drawCover(d, result);
   drawANI(d, result);
   drawSchemes(d, result);

@@ -23,6 +23,9 @@ export type {
   PriorYearPensionAllowances,
   Jurisdiction,
   PensionArrangementType,
+  OtherSacrifice,
+  TFCExclusions,
+  PriorYearPensionInput,
 } from "./types/income";
 
 // Output types
@@ -52,9 +55,14 @@ export {
   TAX_YEAR_2025_26,
   TAX_YEAR_2026_27,
   minimumIncomeQuarterly,
+  taxYearForDate,
+  isConfiguredTaxYear,
+  CONFIGURED_TAX_YEARS,
+  LATEST_CONFIGURED_TAX_YEAR,
+  TAX_YEAR_CONFIGS,
 } from "./types/constants";
 
-export type { TaxYear, TaxYearConfig, MinimumIncomeAgeBand } from "./types/constants";
+export type { TaxYear, TaxYearConfig, MinimumIncomeAgeBand, ConfigSource, PayFrequency } from "./types/constants";
 
 // Utility: empty parent template for UI forms
 export { createEmptyParentIncome } from "./types/income";
@@ -64,6 +72,8 @@ export {
   calculateANI,
   calculatePersonalAllowance,
   calculateEmployeeNIC,
+  calculateClass4NIC,
+  calculateSalarySacrifice,
   calculatePensionCarryForward,
   totalPensionContributionsThisYear,
   calculateRSUANIAmount,
@@ -87,6 +97,7 @@ export {
   tfcEligibleUntil,
   isTFCEligibleChild,
   tfcTopUpValue,
+  termsToTFCQuarters,
   thresholdStatus,
   AT_RISK_BUFFER,
   mkFlag,
