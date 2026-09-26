@@ -809,6 +809,14 @@ function ParentForm({
           tooltip={TT.statutoryLeave}
           onChange={(v) => set({ onStatutoryLeave: v })}
         />
+        {parent.selfEmploymentProfit > 0 && (
+          <Toggle
+            label="Over State Pension age (no Class 4 NIC)"
+            value={parent.statePensionAgeReached ?? false}
+            tooltip={TT.statePensionAge}
+            onChange={(v) => set({ statePensionAgeReached: v })}
+          />
+        )}
         <Toggle
           label="Scotland resident"
           value={parent.scotlandResident}

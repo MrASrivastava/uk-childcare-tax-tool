@@ -21,7 +21,7 @@ const read = (obj: unknown, path: string): unknown =>
   path.split(".").reduce<unknown>((o, k) => (o as Record<string, unknown> | undefined)?.[k], obj);
 
 describe("N1 — Class 4 NIC", () => {
-  it.fails("charges £2,245.80 Class 4 on £50,000 profit", () => {
+  it("charges £2,245.80 Class 4 on £50,000 profit", () => {
     const r = calculate(household({ parentA: parent(0, { selfEmploymentProfit: 50_000 }) }));
     expect(read(r.parentA.nic, "class4")).toBeCloseTo(2_245.8, 2);
   });

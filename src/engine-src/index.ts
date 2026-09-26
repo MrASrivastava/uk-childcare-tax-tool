@@ -69,6 +69,7 @@ export {
   calculateANI,
   calculatePersonalAllowance,
   calculateEmployeeNIC,
+  calculateClass4NIC,
   calculatePensionCarryForward,
   totalPensionContributionsThisYear,
   calculateRSUANIAmount,

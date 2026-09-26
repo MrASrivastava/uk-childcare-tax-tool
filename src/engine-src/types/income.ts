@@ -385,6 +385,12 @@ export interface ParentIncome {
   selfEmployed?: boolean;
 
   /**
+   * TRUE if the parent was over State Pension age at the start of the tax
+   * year. Class 4 NIC is then not payable.
+   */
+  statePensionAgeReached?: boolean;
+
+  /**
    * Contracted hours per week. Used to check that salary sacrifice does not
    * take pay below the National Minimum Wage. Defaults to 37.5.
    */

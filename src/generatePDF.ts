@@ -493,7 +493,7 @@ function drawIncomeSplitChart(d: Doc, r: CalculationResult) {
 
     const sacrifice = a.ani.totalSalarySacrifice;
     const tax       = a.incomeTax.totalIncomeTax;
-    const nic       = a.nic.employeeNIC;
+    const nic       = a.nic.totalEmployeeNIC;
     const takeHome  = Math.max(0, th);
     const total     = sacrifice + tax + nic + takeHome;
 
@@ -758,7 +758,8 @@ function drawANI(d: Doc, r: CalculationResult) {
 
     d.hr();
     d.kvRow("Income tax", fmtGBP(a.incomeTax.totalIncomeTax), RED);
-    d.kvRow("Employee NIC", fmtGBP(a.nic.employeeNIC), RED);
+    d.kvRow("National Insurance (Class 1)", fmtGBP(a.nic.class1Employee), RED);
+    if (a.nic.class4 > 0) d.kvRow("National Insurance (Class 4)", fmtGBP(a.nic.class4), RED);
     d.kvRow("Net take-home", fmtGBP(th), GREEN);
     d.gap(6);
   }

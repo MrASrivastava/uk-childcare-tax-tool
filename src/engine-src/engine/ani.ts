@@ -370,6 +370,25 @@ export function calculateEmployeeNIC(
   return { employmentIncomeForNIC, employeeNIC };
 }
 
+/**
+ * calculateClass4NIC
+ *
+ * Class 4 NIC on self-employed profits for the tax year: the main rate between
+ * the lower and upper profits limits, the additional rate above. Worked out
+ * independently of any Class 1 on employment. Not payable by someone over
+ * State Pension age at the start of the tax year. Class 2 is no longer payable
+ * (from April 2024 the self-employed get an NI credit above the small profits
+ * threshold without paying it).
+ */
+export function calculateClass4NIC(parent: ParentIncome, config: TaxYearConfig): number {
+  if (parent.statePensionAgeReached) return 0;
+  const { lowerProfitsLimit, upperProfitsLimit, mainRate, additionalRate } = config.class4NIC;
+  const profit = Math.max(parent.selfEmploymentProfit, 0);
+  const main = Math.max(Math.min(profit, upperProfitsLimit) - lowerProfitsLimit, 0) * mainRate;
+  const additional = Math.max(profit - upperProfitsLimit, 0) * additionalRate;
+  return main + additional;
+}
+
 // ---------------------------------------------------------------------------
 // Income tax calculation
 // ---------------------------------------------------------------------------

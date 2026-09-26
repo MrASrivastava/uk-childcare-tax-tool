@@ -132,6 +132,14 @@ export interface TaxYearConfig {
   /** Employee Class 1 NIC bands */
   employeeNICBands: NICBand[];
 
+  /** Class 4 NIC on self-employed profits (independent of any Class 1) */
+  class4NIC: {
+    lowerProfitsLimit: number;
+    upperProfitsLimit: number;
+    mainRate: number;
+    additionalRate: number;
+  };
+
   /** Employer Class 1 NIC rate (above secondary threshold) */
   employerNICRate: number;
   /** Employer secondary threshold (annual) */
@@ -235,6 +243,7 @@ function sourcesFor(): ConfigSource[] {
     unverified("personalAllowance, incomeTaxBands", "https://www.gov.uk/income-tax-rates"),
     unverified("scottishIncomeTaxBands", "https://www.gov.uk/scottish-income-tax"),
     unverified("employeeNICBands, employerNICRate", "https://www.gov.uk/national-insurance-rates-letters"),
+    unverified("class4NIC", "https://www.gov.uk/self-employed-national-insurance-rates"),
     unverified("nationalMinimumWageHourly, minimumWageByAgeBand", "https://www.gov.uk/national-minimum-wage-rates"),
     unverified("childBenefit", "https://www.gov.uk/child-benefit-rates"),
     unverified("hicbc", "https://www.gov.uk/child-benefit-tax-charge"),
@@ -277,6 +286,8 @@ export const TAX_YEAR_2025_26: TaxYearConfig = {
     { from: 12_570,  to: 50_270,   rate: 0.08 },
     { from: 50_270,  to: Infinity, rate: 0.02 },
   ],
+
+  class4NIC: { lowerProfitsLimit: 12_570, upperProfitsLimit: 50_270, mainRate: 0.06, additionalRate: 0.02 },
 
   employerNICRate: 0.15,
   employerNICSecondaryThreshold: 5_000, // Secondary threshold for 2025/26
@@ -383,6 +394,8 @@ export const TAX_YEAR_2026_27: TaxYearConfig = {
     { from: 12_570,  to: 50_270,   rate: 0.08 },
     { from: 50_270,  to: Infinity, rate: 0.02 },
   ],
+
+  class4NIC: { lowerProfitsLimit: 12_570, upperProfitsLimit: 50_270, mainRate: 0.06, additionalRate: 0.02 },
 
   employerNICRate: 0.15,
   employerNICSecondaryThreshold: 5_000,

@@ -24,6 +24,7 @@ import {
   calculatePersonalAllowance,
   calculateIncomeTax,
   calculateEmployeeNIC,
+  calculateClass4NIC,
   calculatePensionCarryForward,
   totalPensionContributionsThisYear,
 } from "./ani";
@@ -41,6 +42,51 @@ import { computeOptimisationRecommendations } from "./optimiser";
 
 function clampDate(d: Date, min: Date, max: Date): Date {
   return d < min ? min : d > max ? max : d;
+}
+
+/**
+ * National Insurance for one parent: Class 1 on employment earnings and
+ * Class 4 on self-employed profits, worked out independently.
+ *
+ * rules.md §5.3.
+ */
+function buildNICResult(
+  parent: import("../types/income").ParentIncome,
+  config: import("../types/constants").TaxYearConfig,
+  warnings: string[]
+): NICResult {
+  const class1 = calculateEmployeeNIC(parent, config);
+  const class4 = calculateClass4NIC(parent, config);
+
+  // The annual maximum can cap combined Class 1 and Class 4 when both are
+  // substantial. It only binds when employment earnings alone exceed the UEL
+  // and there are profits above the lower profits limit, so warn then.
+  const uel = config.employeeNICBands[config.employeeNICBands.length - 1].from;
+  if (class1.employmentIncomeForNIC > uel && parent.selfEmploymentProfit > config.class4NIC.lowerProfitsLimit && class4 > 0) {
+    warnings.push(
+      `${parent.label} pays both Class 1 and Class 4 National Insurance on substantial earnings. ` +
+      "The annual maximum rules may reduce the combined amount; this tool does not apply them."
+    );
+  }
+
+  // Employer NIC is saved on ALL salary sacrifice, not just pension.
+  // rules.md §4.1: employer NIC saved at 15% on all sacrificed amounts.
+  const totalSacrifice =
+    parent.salarySacrifice.pension +
+    (parent.salarySacrifice.ev?.annualLeaseCost ?? 0) +
+    parent.salarySacrifice.cycleToWork +
+    parent.salarySacrifice.other;
+
+  const total = class1.employeeNIC + class4;
+  return {
+    parentLabel: parent.label,
+    grossPayForNIC: class1.employmentIncomeForNIC,
+    class1Employee: class1.employeeNIC,
+    class4,
+    totalEmployeeNIC: total,
+    employeeNIC: total,
+    employerNICSavingFromSacrifice: totalSacrifice * config.employerNICRate,
+  };
 }
 
 /**
@@ -121,7 +167,7 @@ function buildPensionCapacity(
  * represents the marginal "cost" of crossing the threshold.
  */
 export function generateMarginalRateChart(
-  _parent: import("../types/income").ParentIncome,
+  parent: import("../types/income").ParentIncome,
   config: import("../types/constants").TaxYearConfig,
   grossChildBenefit: number,
   freeHoursIncrementalValue: number,
@@ -129,6 +175,15 @@ export function generateMarginalRateChart(
 ): import("../types/output").MarginalRateDataPoint[] {
   const points: import("../types/output").MarginalRateDataPoint[] = [];
   const STEP = 1_000;
+  const employment =
+    parent.grossSalary + parent.bonus.expectedThisYear + parent.cashAllowances +
+    parent.rsuVests.reduce((sum, v) => sum + v.grossValue, 0);
+  const mainlySelfEmployed = parent.selfEmploymentProfit > 0 && parent.selfEmploymentProfit >= employment;
+  const nicBandRate = (income: number) => {
+    let rate = 0;
+    for (const band of config.employeeNICBands) if (income > band.from) rate = band.rate;
+    return rate;
+  };
   const CLIFF = config.freeHours.maximumANIThreshold; // £100,000
 
   for (let ani = 50_000; ani <= 135_000; ani += STEP) {
@@ -146,9 +201,15 @@ export function generateMarginalRateChart(
     else                   itRate = 0.00;
 
     // ---- NIC marginal rate --------------------------------------------------
-    // Class 1 employee NIC on employment income. ANI used as proxy.
-    // UEL = £50,270: above = 2%, between PT and UEL = 8%.
-    const nicRate = ani < 50_270 ? 0.08 : 0.02;
+    // Class 1 on employment income, or Class 4 when the parent's income is
+    // mainly self-employed profit. ANI is used as a proxy for the NIC base.
+    const nicRate = mainlySelfEmployed
+      ? ani <= config.class4NIC.lowerProfitsLimit
+        ? 0
+        : ani <= config.class4NIC.upperProfitsLimit
+        ? config.class4NIC.mainRate
+        : config.class4NIC.additionalRate
+      : nicBandRate(ani);
 
     // ---- PA taper effect ----------------------------------------------------
     // In the taper zone each £2 of income removes £1 of PA, which itself was
@@ -302,7 +363,6 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
 
   // ---- Steps 5b–5c: Income tax and NIC per parent --------------------------
   const parentAITCalc = calculateIncomeTax(parentAANIBreakdown, parentAPA, inputs.parentA, config);
-  const parentANICCalc = calculateEmployeeNIC(inputs.parentA, config);
 
   const parentAITResult: IncomeTaxResult = {
     parentLabel: inputs.parentA.label,
@@ -314,20 +374,7 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     scottishRatesApplied: inputs.parentA.scotlandResident,
   };
 
-  // Employer NIC is saved on ALL salary sacrifice, not just pension.
-  // rules.md §4.1: employer NIC saved at 15% on all sacrificed amounts.
-  const parentATotalSacrifice =
-    inputs.parentA.salarySacrifice.pension +
-    (inputs.parentA.salarySacrifice.ev?.annualLeaseCost ?? 0) +
-    inputs.parentA.salarySacrifice.cycleToWork +
-    inputs.parentA.salarySacrifice.other;
-
-  const parentANICResult: NICResult = {
-    parentLabel: inputs.parentA.label,
-    grossPayForNIC: parentANICCalc.employmentIncomeForNIC,
-    employeeNIC: parentANICCalc.employeeNIC,
-    employerNICSavingFromSacrifice: parentATotalSacrifice * config.employerNICRate,
-  };
+  const parentANICResult = buildNICResult(inputs.parentA, config, warnings);
 
   const parentBITResult: IncomeTaxResult | null = inputs.parentB && parentBANI !== null && parentBPA !== null
     ? (() => {
@@ -345,20 +392,7 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     : null;
 
   const parentBNICResult: NICResult | null = inputs.parentB
-    ? (() => {
-        const calc = calculateEmployeeNIC(inputs.parentB, config);
-        return {
-          parentLabel: inputs.parentB.label,
-          grossPayForNIC: calc.employmentIncomeForNIC,
-          employeeNIC: calc.employeeNIC,
-          employerNICSavingFromSacrifice: (
-            inputs.parentB.salarySacrifice.pension +
-            (inputs.parentB.salarySacrifice.ev?.annualLeaseCost ?? 0) +
-            inputs.parentB.salarySacrifice.cycleToWork +
-            inputs.parentB.salarySacrifice.other
-          ) * config.employerNICRate,
-        };
-      })()
+    ? buildNICResult(inputs.parentB, config, warnings)
     : null;
 
   // ---- Pension capacity ---------------------------------------------------
@@ -478,14 +512,14 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   const parentANetTakeHome =
     parentAANIBreakdown.step1NetIncome -
     parentAITResult.totalIncomeTax -
-    parentANICResult.employeeNIC -
+    parentANICResult.totalEmployeeNIC -
     inputs.parentA.personalPensionContributions.reliefAtSourceNet -
     inputs.parentA.giftAidDonationsNet;
 
   const parentBNetTakeHome = inputs.parentB && parentBITResult && parentBNICResult && parentBANIBreakdown
     ? parentBANIBreakdown.step1NetIncome -
       parentBITResult.totalIncomeTax -
-      parentBNICResult.employeeNIC -
+      parentBNICResult.totalEmployeeNIC -
       inputs.parentB.personalPensionContributions.reliefAtSourceNet -
       inputs.parentB.giftAidDonationsNet
     : 0;

@@ -136,6 +136,13 @@ export interface IncomeTaxResult {
 export interface NICResult {
   parentLabel: string;
   grossPayForNIC: number;             // Post-sacrifice cash earnings for Class 1 NIC (excludes BiKs)
+  /** Employee Class 1 NIC on employment earnings */
+  class1Employee: number;
+  /** Class 4 NIC on self-employed profits */
+  class4: number;
+  /** Class 1 + Class 4: all National Insurance the parent pays */
+  totalEmployeeNIC: number;
+  /** @deprecated Same as totalEmployeeNIC; kept for one release. */
   employeeNIC: number;
   /** For information only — employer's NIC saving from any salary sacrifice */
   employerNICSavingFromSacrifice: number;
