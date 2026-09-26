@@ -31,3 +31,7 @@ export function defaultTaxYear(): { year: TaxYear; outOfDate: boolean } {
     ? { year: current, outOfDate: false }
     : { year: LATEST_CONFIGURED_TAX_YEAR, outOfDate: true };
 }
+
+/** What to call each parent in the results ("Alex" / "Sam", or "Parent A" / "Parent B"). */
+export const ParentNamesContext = createContext<{ A: string; B: string }>({ A: "Parent A", B: "Parent B" });
+export const useParentNames = () => useContext(ParentNamesContext);
