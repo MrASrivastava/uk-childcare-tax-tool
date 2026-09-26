@@ -24,6 +24,8 @@ export type {
   Jurisdiction,
   PensionArrangementType,
   OtherSacrifice,
+  TFCExclusions,
+  PriorYearPensionInput,
 } from "./types/income";
 
 // Output types
@@ -95,6 +97,7 @@ export {
   tfcEligibleUntil,
   isTFCEligibleChild,
   tfcTopUpValue,
+  termsToTFCQuarters,
   thresholdStatus,
   AT_RISK_BUFFER,
   mkFlag,

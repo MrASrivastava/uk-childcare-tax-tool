@@ -914,6 +914,62 @@ function SelectField({
   );
 }
 
+/** A child's own childcare bill (optional) and whether they live with the parents. */
+function ChildBillFields({ child, onChange }: { child: ChildInfo; onChange: (c: ChildInfo) => void }) {
+  const TT = useTT();
+  const bill = child.childcareBill;
+  const quarterly = bill && "quarterly" in bill ? bill.quarterly : null;
+  const annual = bill ? ("annual" in bill ? bill.annual : bill.quarterly.reduce((a, b) => a + b, 0)) : 0;
+  const QUARTERS = ["Apr–Jul", "Jul–Oct", "Oct–Jan", "Jan–Apr"];
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <NumField
+        label="This child's fees (before free hours)"
+        step={500}
+        tooltip={TT.childBill}
+        value={annual}
+        onChange={(v) => onChange({ ...child, childcareBill: v > 0 ? { annual: v } : undefined })}
+        hint="0 = share of the household figure below"
+      />
+      {annual > 0 && (
+        <Toggle
+          label="Uneven through the year"
+          value={quarterly !== null}
+          onChange={(on) =>
+            onChange({
+              ...child,
+              childcareBill: on ? { quarterly: [annual / 4, annual / 4, annual / 4, annual / 4] } : { annual },
+            })
+          }
+        />
+      )}
+      {quarterly && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          {quarterly.map((q, n) => (
+            <NumField
+              key={n}
+              label={QUARTERS[n]}
+              step={250}
+              value={q}
+              onChange={(v) => {
+                const next = [...quarterly] as [number, number, number, number];
+                next[n] = v;
+                onChange({ ...child, childcareBill: { quarterly: next } });
+              }}
+            />
+          ))}
+        </div>
+      )}
+      <Toggle
+        label="Usually lives with you"
+        value={child.usuallyLivesWithYou ?? true}
+        tooltip={TT.livesWithYou}
+        onChange={(v) => onChange({ ...child, usuallyLivesWithYou: v })}
+      />
+    </div>
+  );
+}
+
 /** Tax months for the bonus payment selector: 1 = 6 April–5 May. */
 const BONUS_MONTHS: [string, string][] = [
   "April", "May", "June", "July", "August", "September",
@@ -1003,6 +1059,11 @@ function ChildrenForm({
             ✕
           </button>
         </div>
+        <ChildBillFields child={child} onChange={(c) => {
+          const n = [...children];
+          n[i] = c;
+          onChange(n);
+        }} />
         <div style={{ marginTop: -2, marginBottom: 10 }}>
           <SelectField
             label="Extra support at age 2"
@@ -1107,6 +1168,34 @@ function HouseholdSettingsFields({
         onChange={(v) => onHousehold({ childBenefitPaymentsElected: v })}
         tooltip={TT.cbPayments}
       />
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", margin: "8px 0 6px" }}>
+        Tax-Free Childcare exclusions
+      </div>
+      {([
+        ["receivesUniversalCredit", "Getting Universal Credit", TT.tfcUC, false],
+        ["eitherParentReceivesChildcareVouchers", "Either parent gets childcare vouchers", TT.tfcVouchers, false],
+        ["receivesChildcareBursaryOrGrant", "Getting a childcare bursary or grant", TT.tfcBursary, false],
+        ["residenceConditionsConfirmed", "UK residence conditions met", TT.tfcResidence, true],
+      ] as const).map(([key, label, tip, fallback]) => (
+        <Toggle
+          key={key}
+          label={label}
+          tooltip={tip}
+          value={inputs.tfcExclusions?.[key] ?? fallback}
+          onChange={(v) =>
+            onHousehold({
+              tfcExclusions: {
+                receivesUniversalCredit: false,
+                eitherParentReceivesChildcareVouchers: false,
+                receivesChildcareBursaryOrGrant: false,
+                residenceConditionsConfirmed: true,
+                ...inputs.tfcExclusions,
+                [key]: v,
+              },
+            })
+          }
+        />
+      ))}
     </>
   );
 }

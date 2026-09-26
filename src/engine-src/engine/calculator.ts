@@ -35,6 +35,7 @@ import {
   isTFCEligibleChild,
   tfcQuarterStarts,
   tfcTopUpValue,
+  termsToTFCQuarters,
 } from "./eligibility";
 import { computeOptimisationRecommendations } from "./optimiser";
 import { annualAllowanceTest, buildPensionCapacity } from "./pensions";
@@ -419,23 +420,40 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   );
 
   // ---- Step 7: TFC eligibility --------------------------------------------
-  // Each child's childcare cost before funded hours: the per-child figure if
-  // given, otherwise the household figure split across TFC-eligible children.
+  // Each child's childcare bill before funded hours, per TFC period: the
+  // child's own bill if given (quarterly, or annual spread evenly), otherwise
+  // the household figure split evenly across TFC-age children who live with
+  // the parents.
   const quarterStarts = tfcQuarterStarts(config);
-  const tfcAgeChildren = inputs.children.filter(
-    (c) => c.annualChildcareCost === undefined && quarterStarts.some((q) => isTFCEligibleChild(c, q, config))
+  const ownBill = (c: typeof inputs.children[number]): number[] | null =>
+    c.childcareBill
+      ? "quarterly" in c.childcareBill
+        ? [...c.childcareBill.quarterly]
+        : new Array(4).fill(c.childcareBill.annual / 4)
+      : c.annualChildcareCost !== undefined
+      ? new Array(4).fill(c.annualChildcareCost / 4)
+      : null;
+  const sharing = inputs.children.filter(
+    (c) => ownBill(c) === null && c.usuallyLivesWithYou !== false && quarterStarts.some((q) => isTFCEligibleChild(c, q, config))
   );
-  const explicitCosts = inputs.children.reduce((sum, c) => sum + (c.annualChildcareCost ?? 0), 0);
-  const sharedCost = tfcAgeChildren.length > 0
-    ? Math.max(inputs.estimatedAnnualChildcareSpend - explicitCosts, 0) / tfcAgeChildren.length
-    : 0;
-  const childCosts = inputs.children.map((c) =>
-    c.annualChildcareCost ?? (tfcAgeChildren.includes(c) ? sharedCost : 0)
+  const explicitTotal = inputs.children.reduce((sum, c) => sum + (ownBill(c)?.reduce((a, b) => a + b, 0) ?? 0), 0);
+  const sharedAnnual = sharing.length > 0 ? Math.max(inputs.estimatedAnnualChildcareSpend - explicitTotal, 0) / sharing.length : 0;
+  if (sharing.length > 1 && sharedAnnual > 0) {
+    warnings.push(
+      `The childcare fees of £${Math.round(inputs.estimatedAnnualChildcareSpend - explicitTotal).toLocaleString("en-GB")} have been split evenly ` +
+      `across ${sharing.length} children for Tax-Free Childcare, which is capped per child. Enter each child's bill for a more accurate top-up.`
+    );
+  }
+  const childQuarterCosts = inputs.children.map((c) =>
+    ownBill(c) ?? (sharing.includes(c) ? new Array(4).fill(sharedAnnual / 4) : [0, 0, 0, 0])
   );
   // TFC pays 20% of what the parents pay, i.e. the bill after funded hours
-  const childBills = childCosts.map((cost, i) =>
-    Math.max(cost - freeHoursChildren[i].workingParentAnnualValue, 0)
-  );
+  const billsAfter = (funded: (i: number) => [number, number, number]) =>
+    childQuarterCosts.map((costs, i) => {
+      const fundedQ = termsToTFCQuarters(funded(i));
+      return costs.map((cost, q) => Math.max(cost - fundedQ[q], 0));
+    });
+  const childQuarterBills = billsAfter((i) => freeHoursChildren[i].fundedValueByTerm.received);
 
   const tfc = computeTFCEligibility(
     parentAANI,
@@ -443,9 +461,10 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
     parentAMinIncome,
     parentBMinIncome,
     inputs.children,
-    childBills,
+    childQuarterBills,
     config,
-    referenceDate
+    referenceDate,
+    inputs.tfcExclusions
   );
 
   // ---- Step 8: Child Benefit / HICBC --------------------------------------
@@ -526,9 +545,7 @@ export function calculateCore(inputs: HouseholdInputs): CalculationResult {
   // with working-parent entitlement.
   const potentialTFCMaxTopUp = tfcTopUpValue(
     inputs.children,
-    childCosts.map((cost, i) =>
-      Math.max(cost - freeHoursChildren[i].universalAnnualValue - freeHoursChildren[i].incrementalWorkingParentValue, 0)
-    ),
+    billsAfter((i) => freeHoursChildren[i].fundedValueByTerm.withWorkingParent),
     config
   ).estimatedTopUp;
 

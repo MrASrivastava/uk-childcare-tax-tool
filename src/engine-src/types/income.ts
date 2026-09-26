@@ -494,7 +494,7 @@ export interface ChildInfo {
   isDisabled: boolean;
 
   /**
-   * Optional annual childcare cost for this child BEFORE funded hours
+   * @deprecated Use childcareBill. Optional annual childcare cost for this child BEFORE funded hours
    * (what the provider would charge with no government funding).
    * If omitted, HouseholdInputs.estimatedAnnualChildcareSpend is split
    * evenly across children of Tax-Free Childcare age.
@@ -515,6 +515,25 @@ export interface ChildInfo {
    * warning) if the parents earn above it. rules.md §2.2.2.
    */
   twoYearOldExtraSupport?: "dla" | "ehc_plan" | "looked_after_or_left_care" | "benefits_route" | null;
+
+  /**
+   * The childcare bill for this child BEFORE funded hours, either for the
+   * year (assumed spread evenly) or for each 3-month TFC period starting
+   * 6 April, 6 July, 6 October and 6 January. Supersedes annualChildcareCost.
+   */
+  childcareBill?: { annual: number } | { quarterly: [number, number, number, number] };
+
+  /** Whether the child usually lives with the claimant. TFC requires it. Default true. */
+  usuallyLivesWithYou?: boolean;
+}
+
+/** Things that rule out Tax-Free Childcare regardless of income. rules.md §2.3.2. */
+export interface TFCExclusions {
+  receivesUniversalCredit: boolean;
+  eitherParentReceivesChildcareVouchers: boolean;
+  receivesChildcareBursaryOrGrant: boolean;
+  /** Residence and right-to-reside conditions met. Default true. */
+  residenceConditionsConfirmed: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +611,9 @@ export interface HouseholdInputs {
    * of that bill (capped per child).
    */
   estimatedAnnualChildcareSpend: number;
+
+  /** Conditions that rule out Tax-Free Childcare. Omitted means none apply. */
+  tfcExclusions?: TFCExclusions;
 
   /**
    * Optional assessment date (YYYY-MM-DD) at which child ages and current

@@ -1,8 +1,8 @@
 /**
- * Worked examples for findings N1–N7 that are not fixed yet.
+ * Worked examples for findings N1–N7.
  *
- * Each is marked it.fails: it passes while the bug is present, and the commit
- * that fixes a finding flips its cases to it() so they must then pass.
+ * These were added as it.fails cases while each bug was open; the commit that
+ * fixed a finding flipped its cases to it(), so they now all must pass.
  * Inputs for fields that don't exist yet are passed through loosely typed
  * objects so this file compiles before the fields are added.
  */
@@ -79,7 +79,7 @@ describe("N6 — 2-year-olds with extra support", () => {
 });
 
 describe("N7 — TFC exclusions and quarterly bills", () => {
-  it.fails("Universal Credit makes the household ineligible", () => {
+  it("Universal Credit makes the household ineligible", () => {
     const inputs = {
       ...household({
         parentA: parent(30_000),
@@ -97,7 +97,7 @@ describe("N7 — TFC exclusions and quarterly bills", () => {
     expect(calculate(inputs).tfc.eligible.status).toBe("not_eligible");
   });
 
-  it.fails("£6,000 spent in one quarter earns £500, not £1,200", () => {
+  it("£6,000 spent in one quarter earns £500, not £1,200", () => {
     const inputs = household({
       parentA: parent(50_000),
       parentB: parent(40_000, {}, "Parent B"),

@@ -236,6 +236,13 @@ export interface FreeHoursChildResult {
   universalAnnualValue: number;
   /** Incremental annual value of working parent entitlement vs universal */
   incrementalWorkingParentValue: number;
+
+  /**
+   * Value of funded hours in each term of the tax year (summer, autumn,
+   * spring): what the household receives now, and what it would receive
+   * with working-parent entitlement.
+   */
+  fundedValueByTerm: { received: [number, number, number]; withWorkingParent: [number, number, number] };
 }
 
 // ---------------------------------------------------------------------------

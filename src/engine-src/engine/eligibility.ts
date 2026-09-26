@@ -16,7 +16,7 @@
  *   - Correct treatment when one parent is over £100k for the universal 15hr entitlement
  */
 
-import type { ChildInfo, ParentIncome } from "../types/income";
+import type { ChildInfo, ParentIncome, TFCExclusions } from "../types/income";
 import type {
   EligibilityFlag,
   EligibilityStatus,
@@ -574,13 +574,18 @@ export function computeFreeHoursForChild(
   let workingParentAnnualValue = 0;
   let universalAnnualValue = 0;
   let incrementalWorkingParentValue = 0;
-  for (const termStart of taxYearTermStarts(config)) {
+  const received: [number, number, number] = [0, 0, 0];
+  const withWorkingParent: [number, number, number] = [0, 0, 0];
+  taxYearTermStarts(config).forEach((termStart, term) => {
     const group = getChildAgeGroup(child, termStart).ageGroup;
     const t = termHours(group, householdWorkingEligible, config, localRates, extraSupport);
-    workingParentAnnualValue += t.receivedHours * weeksPerTerm * t.hourlyRate;
+    const eligible = termHours(group, true, config, localRates, extraSupport);
+    received[term] = t.receivedHours * weeksPerTerm * t.hourlyRate;
+    withWorkingParent[term] = eligible.receivedHours * weeksPerTerm * eligible.hourlyRate;
+    workingParentAnnualValue += received[term];
     universalAnnualValue += t.universalHours * weeksPerTerm * t.hourlyRate;
     incrementalWorkingParentValue += t.incrementalHours * weeksPerTerm * t.hourlyRate;
-  }
+  });
 
   // incrementalWorkingParentHours: the POTENTIAL extra hours from working
   // parent status at the reference date, whether or not the household
@@ -600,6 +605,7 @@ export function computeFreeHoursForChild(
     workingParentAnnualValue,
     universalAnnualValue,
     incrementalWorkingParentValue,
+    fundedValueByTerm: { received, withWorkingParent },
   };
 }
 
@@ -659,35 +665,47 @@ export function tfcQuarterStarts(config: TaxYearConfig): Date[] {
 }
 
 /**
+ * Spread a value per school term (summer, autumn, spring) over the four TFC
+ * periods (from 6 April, 6 July, 6 October, 6 January). The summer term falls
+ * in the first period, a third of the autumn term in the second and the rest
+ * in the third, and the spring term in the fourth.
+ */
+export function termsToTFCQuarters([summer, autumn, spring]: [number, number, number]): [number, number, number, number] {
+  return [summer, autumn / 3, (autumn * 2) / 3, spring];
+}
+
+/**
  * tfcTopUpValue
  *
- * Household TFC value ignoring parental eligibility. For each child:
- *   top-up per quarter = min(20% × bill for the quarter, cap ÷ 4)
- * summed over the quarters in which the child is eligible.
+ * Household TFC value ignoring parental eligibility. For each child and each
+ * 3-month entitlement period in which the child is eligible:
+ *   top-up = min(20% × the bill paid that period, cap for the period)
  *
- * `childBills` is what the parents pay each provider per year, per child,
- * AFTER funded hours. The government pays £2 for every £8 the parent pays in,
- * which is 20% of the provider's bill. The cap is per child account; it is
- * not pooled across children.
+ * `childQuarterBills` is what the parents pay each provider per period, per
+ * child, AFTER funded hours. The government pays £2 for every £8 the parent
+ * pays in, which is 20% of the provider's bill. The cap (£500, or £1,000 for
+ * a disabled child) is per child and per period: it is not pooled across
+ * children, and unused cap doesn't roll forward.
  *
  * rules.md §2.3.4.
  */
 export function tfcTopUpValue(
   children: ChildInfo[],
-  childBills: number[],
+  childQuarterBills: number[][],
   config: TaxYearConfig
 ): { maxTopUp: number; estimatedTopUp: number } {
   const quarters = tfcQuarterStarts(config);
   let maxTopUp = 0;
   let estimatedTopUp = 0;
   children.forEach((child, i) => {
-    const cap = child.isDisabled ? config.tfc.maxTopUpDisabledPerYear : config.tfc.maxTopUpPerChildPerYear;
-    const bill = Math.max(childBills[i] ?? 0, 0);
-    for (const q of quarters) {
-      if (!isTFCEligibleChild(child, q, config)) continue;
-      maxTopUp += cap / 4;
-      estimatedTopUp += Math.min((bill / 4) * config.tfc.topUpRate, cap / 4);
-    }
+    if (child.usuallyLivesWithYou === false) return;
+    const cap = (child.isDisabled ? config.tfc.maxTopUpDisabledPerYear : config.tfc.maxTopUpPerChildPerYear) / 4;
+    quarters.forEach((q, n) => {
+      if (!isTFCEligibleChild(child, q, config)) return;
+      const bill = Math.max(childQuarterBills[i]?.[n] ?? 0, 0);
+      maxTopUp += cap;
+      estimatedTopUp += Math.min(bill * config.tfc.topUpRate, cap);
+    });
   });
   return { maxTopUp, estimatedTopUp };
 }
@@ -713,11 +731,36 @@ export function computeTFCEligibility(
   parentAMinIncome: MinimumIncomeTest,
   parentBMinIncome: MinimumIncomeTest | null,
   children: ChildInfo[],
-  childBills: number[],
+  childQuarterBills: number[][],
   config: TaxYearConfig,
-  referenceDate: Date
+  referenceDate: Date,
+  exclusions?: TFCExclusions
 ): TFCResult {
   const max = config.tfc.maximumANIThreshold;
+
+  // ---- Check 0: Exclusions that apply whatever the household earns ------------
+  const excluded = exclusions
+    ? [
+        exclusions.receivesUniversalCredit && "the household gets Universal Credit",
+        exclusions.eitherParentReceivesChildcareVouchers && "a parent gets employer childcare vouchers",
+        exclusions.receivesChildcareBursaryOrGrant && "the household gets a childcare bursary or grant",
+        !exclusions.residenceConditionsConfirmed && "the residence and right-to-reside conditions aren't met",
+      ].filter((x): x is string => Boolean(x))
+    : [];
+  if (excluded.length > 0) {
+    return {
+      eligible: mkFlag(
+        "not_eligible",
+        `Not eligible for Tax-Free Childcare because ${excluded.join(" and ")}. ` +
+        "These rule it out whatever the household earns.",
+        0
+      ),
+      eligibleChildCount: 0,
+      maxPossibleTopUpAnnual: 0,
+      estimatedActualTopUpAnnual: 0,
+      atRisk: false,
+    };
+  }
 
   // ---- Check 1: Maximum income (hard cliff) --------------------------------
   const parentAOverMax = parentAANI > max;
@@ -767,8 +810,10 @@ export function computeTFCEligibility(
   }
 
   // ---- Eligible children and value -------------------------------------------
-  const eligibleChildCount = children.filter((c) => isTFCEligibleChild(c, referenceDate, config)).length;
-  const { maxTopUp, estimatedTopUp } = tfcTopUpValue(children, childBills, config);
+  const eligibleChildCount = children.filter(
+    (c) => c.usuallyLivesWithYou !== false && isTFCEligibleChild(c, referenceDate, config)
+  ).length;
+  const { maxTopUp, estimatedTopUp } = tfcTopUpValue(children, childQuarterBills, config);
 
   // ---- At-risk proximity check ---------------------------------------------
   const gapA = max - parentAANI;
@@ -784,7 +829,8 @@ export function computeTFCEligibility(
         ? `Eligible, but only £${Math.round(smallestGap).toLocaleString()} below the ` +
           `£${max.toLocaleString()} cliff edge. A bonus, RSU vest, or savings interest ` +
           `increase could remove eligibility entirely.`
-        : `Eligible. Both parents meet income requirements.`,
+        : "Eligible on the income and age tests this tool checks. Universal Credit, childcare vouchers " +
+          "and bursaries also rule TFC out; the tool assumes none apply unless you say so.",
       smallestGap
     ),
     eligibleChildCount,

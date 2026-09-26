@@ -296,9 +296,11 @@ If the user does not enter their provider's rate, the tool falls back to the 202
 
 **Child's age:** A child is eligible until the **1 September after their 11th birthday** (16th birthday for disabled children).
 
+**The child** must usually live with the claimant. The tool leaves out children marked as not living with the parents.
+
 **Incompatible with:**
-- Universal Credit
-- Tax Credits (Working Tax Credit or Child Tax Credit)
+- Universal Credit (tax credits closed in April 2025, so this is now the main case)
+- A childcare bursary or grant
 - Childcare vouchers (legacy scheme, closed to new entrants October 2018; existing voucher holders continue separately)
 - Employer-supported childcare vouchers
 
@@ -322,6 +324,9 @@ TFC top-up per child  = Σ over eligible 3-month periods of min(20% × bill for 
 - The cap is per child account (£500 per 3 months, £1,000 for disabled children); it is **not pooled** across children
 - Maximum value = £2,000/year/child (£4,000 for disabled children), reached when the bill paid is £10,000/year per child (£20,000 for disabled children)
 - A child who ages out part-way through the year is counted only for the periods in which they are eligible
+- Bills are entered per child, for the year (assumed spread evenly) or for each 3-month period; the household figure is split evenly across children only as a fallback, with a warning
+- Funded hours are subtracted period by period: the summer term falls in the April period, a third of the autumn term in the July period and the rest in the October period, and the spring term in the January period
+- The eligible status says it covers "the income and age tests this tool checks"; any exclusion (Universal Credit, vouchers, a bursary, residence) makes the household not eligible and names the reason
 
 ---
 
