@@ -20,6 +20,7 @@
 
 import jsPDF from "jspdf";
 import type { CalculationResult } from "./engine-src/index";
+import { getTaxYearConfig } from "./engine-src/index";
 
 // ---------------------------------------------------------------------------
 // Colours
@@ -717,6 +718,7 @@ function drawANI(d: Doc, r: CalculationResult) {
       ...(ani.pensionIncomeGross > 0 ? [["Pension income",        ani.pensionIncomeGross] as [string,number]] : []),
     ];
     for (const [lbl, val] of incomeRows) d.kvRow(safe(lbl), `+ ${fmtGBP(val)}`, GREEN, 2);
+    if (ani.netPayPensionContributions > 0) d.kvRow("Net pay pension contributions", `- ${fmtGBP(ani.netPayPensionContributions)}`, RED, 2);
 
     d.hr();
     d.kvRow("Step 1: Net income", fmtGBP(ani.step1NetIncome), NAVY);
@@ -764,7 +766,7 @@ function drawSchemes(d: Doc, r: CalculationResult) {
   d.sectionHeading("30-Hour Free Childcare");
   d.para(
     `Working parents can receive up to 30 hours/week of funded childcare during term time (38 weeks/year). ` +
-    `Both parents must individually earn between ${GBP}10,158 and ${GBP}100,000 ANI. Losing this entitlement ` +
+    `Both parents must each expect to earn at least 16 hours/week at the minimum wage over the next 3 months, and neither can have ANI over ${GBP}100,000. Losing this entitlement ` +
     `because one parent earns ${GBP}1 over ${GBP}100k is one of the most costly tax cliff edges in the UK.`,
     MUTED
   );
@@ -813,7 +815,7 @@ function drawSchemes(d: Doc, r: CalculationResult) {
   d.gap(2);
   d.sectionHeading("Tax-Free Childcare (TFC)");
   d.para(
-    `For every ${GBP}8 deposited in a TFC account, HMRC adds ${GBP}2 (25% top-up). Maximum ${GBP}2,000/child/year ` +
+    `For every ${GBP}8 you pay in, the government adds ${GBP}2 -- 20% of the childcare bill. Maximum ${GBP}2,000/child/year ` +
     `(${GBP}4,000 for disabled children). TFC is disqualified entirely if EITHER parent's ANI exceeds ${GBP}100,000 -- ` +
     `there is no taper. Reconfirm eligibility every 3 months.`,
     MUTED
@@ -831,10 +833,11 @@ function drawSchemes(d: Doc, r: CalculationResult) {
 
   d.gap(4);
   d.sectionHeading("Child Benefit & HICBC");
+  const cb = getTaxYearConfig(r.taxYear).childBenefit;
   d.para(
-    `Child Benefit (${GBP}25.60/wk first child, ${GBP}16.95/wk each additional, 2025/26) is universal but ` +
+    `Child Benefit (${GBP}${cb.firstChildWeekly.toFixed(2)}/wk eldest child, ${GBP}${cb.additionalChildWeekly.toFixed(2)}/wk each additional, ${r.taxYear}) is universal but ` +
     `clawed back via HICBC when the higher earner's ANI exceeds ${GBP}60,000. The charge is ` +
-    `(ANI - ${GBP}60,000) / ${GBP}20,000 x Child Benefit. It reaches 100% at ${GBP}80,000.`,
+    `1% of Child Benefit per ${GBP}200 of ANI above ${GBP}60,000. It reaches 100% at ${GBP}80,000.`,
     MUTED
   );
   d.gap(2);
@@ -849,12 +852,16 @@ function drawSchemes(d: Doc, r: CalculationResult) {
   d.kvRow("NI credits preserved",
     h.niCreditsPreserved ? "Yes -- registered for CB" : "No -- register to protect State Pension credits",
     h.niCreditsPreserved ? GREEN : AMBER);
-  if (h.selfAssessmentRequired) {
+  if (h.selfAssessmentRequired || h.payeOptionAvailable) {
     d.gap(1);
     d.pdf.setFont("helvetica", "bold");
     d.pdf.setFontSize(8);
     d.pdf.setTextColor(...RED);
-    d.pdf.text("Self Assessment must be filed to declare and pay the HICBC.", ML, d.y);
+    d.pdf.text(
+      h.selfAssessmentRequired
+        ? "Declare and pay the HICBC on your Self Assessment return."
+        : "HICBC is payable -- it can be paid via your PAYE tax code (HMRC online HICBC service).",
+      ML, d.y);
     d.y += 5;
   }
   d.gap(2);
@@ -929,8 +936,9 @@ function drawOptimise(d: Doc, r: CalculationResult) {
     return;
   }
 
-  const restorative = recs.filter(r => r.aniReductionRequired > 0);
-  const proactive   = recs.filter(r => r.aniReductionRequired === 0);
+  const isProtective = (r: (typeof recs)[number]) => r.kind === "protective" || r.aniReductionRequired === 0;
+  const restorative = recs.filter(r => !isProtective(r));
+  const proactive   = recs.filter(isProtective);
 
   const drawGroup = (group: typeof recs, heading: string) => {
     if (group.length === 0) return;
@@ -975,7 +983,7 @@ function drawOptimise(d: Doc, r: CalculationResult) {
       d.pdf.setTextColor(...NAVY);
       d.pdf.text(safe(LEVER_NAMES[rec.lever] ?? rec.lever), ML + 6, d.y + 14);
 
-      const actionTxt = rec.aniReductionRequired > 0
+      const actionTxt = !isProtective(rec)
         ? safe(`Contribute ${fmtGBP(rec.actionRequired)} ${rec.actionUnit}  |  ANI reduces by ${fmtGBP(rec.aniReductionRequired)}`)
         : "Protect existing eligibility";
       d.pdf.setFont("helvetica", "normal");
@@ -991,14 +999,14 @@ function drawOptimise(d: Doc, r: CalculationResult) {
       d.pdf.setFontSize(14);
       const gainColor: [number,number,number] = rec.netAnnualGain >= 0 ? GREEN : RED;
       d.pdf.setTextColor(...gainColor);
-      const gainTxt = rec.aniReductionRequired > 0
+      const gainTxt = !isProtective(rec)
         ? (rec.netAnnualGain >= 0 ? "+" : "") + fmtGBP(rec.netAnnualGain)
         : fmtGBP(rec.annualBenefitRestored);
       d.pdf.text(gainTxt, PAGE_W - ML - 4, d.y + 13, { align: "right" });
       d.pdf.setFont("helvetica", "normal");
       d.pdf.setFontSize(7);
       d.pdf.setTextColor(...MUTED);
-      d.pdf.text(rec.aniReductionRequired > 0 ? "net / year" : "protected / year", PAGE_W - ML - 4, d.y + 19, { align: "right" });
+      d.pdf.text(!isProtective(rec) ? "net / year" : "protected / year", PAGE_W - ML - 4, d.y + 19, { align: "right" });
 
       d.y += 42;
 

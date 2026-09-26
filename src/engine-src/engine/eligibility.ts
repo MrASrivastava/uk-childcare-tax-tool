@@ -16,7 +16,7 @@
  *   - Correct treatment when one parent is over £100k for the universal 15hr entitlement
  */
 
-import type { ChildInfo } from "../types/income";
+import type { ChildInfo, ParentIncome } from "../types/income";
 import type {
   EligibilityFlag,
   EligibilityStatus,
@@ -26,6 +26,7 @@ import type {
   TFCResult,
 } from "../types/output";
 import type { TaxYearConfig } from "../types/constants";
+import { minimumIncomeQuarterly } from "../types/constants";
 
 // ---------------------------------------------------------------------------
 // Utility: threshold proximity status and flag builder
@@ -128,6 +129,36 @@ export function compulsorySchoolAgeDate(dateOfBirth: string): Date {
 }
 
 /**
+ * receptionStartDate
+ *
+ * Most children start reception in the September after their 4th birthday
+ * (the school year covering their 5th birthday). Returns that 1 September.
+ */
+export function receptionStartDate(dateOfBirth: string): Date {
+  const dob = new Date(dateOfBirth + "T00:00:00Z");
+  const fourth = new Date(Date.UTC(dob.getUTCFullYear() + 4, dob.getUTCMonth(), dob.getUTCDate()));
+  const sept = new Date(Date.UTC(fourth.getUTCFullYear(), 8, 1));
+  return fourth < sept ? sept : new Date(Date.UTC(fourth.getUTCFullYear() + 1, 8, 1));
+}
+
+/**
+ * fundedHoursEndDate
+ *
+ * Funded early years entitlement ends when the child starts in a reception
+ * class or reaches compulsory school age (the term after their 5th birthday),
+ * whichever comes first. Unless reception is deferred, that is the
+ * September after the 4th birthday.
+ *
+ * rules.md §2.2.1.
+ */
+export function fundedHoursEndDate(child: ChildInfo): Date {
+  const csa = compulsorySchoolAgeDate(child.dateOfBirth);
+  if (child.deferredReception) return csa;
+  const reception = receptionStartDate(child.dateOfBirth);
+  return reception < csa ? reception : csa;
+}
+
+/**
  * ChildAgeGroupResult — the full output of getChildAgeGroup.
  */
 export interface ChildAgeGroupResult {
@@ -156,7 +187,7 @@ export function getChildAgeGroup(
   const term9m  = termAfterAge(child.dateOfBirth, 9);
   const term2yr = termAfterAge(child.dateOfBirth, 24);
   const term3yr = termAfterAge(child.dateOfBirth, 36);
-  const schoolAge = compulsorySchoolAgeDate(child.dateOfBirth);
+  const schoolAge = fundedHoursEndDate(child);
 
   // Grace period zone: within approximately one term (84 days) of any boundary
   const GRACE_ZONE_MS = 84 * 24 * 60 * 60 * 1000;
@@ -205,32 +236,76 @@ export function getChildAgeGroup(
 // ---------------------------------------------------------------------------
 
 /**
+ * Result of the minimum income test for one parent (rules.md §2.2.1).
+ * The test is on expected earnings over the next 3 months, not ANI.
+ */
+export interface MinimumIncomeTest {
+  meets: boolean;
+  /** Expected earnings from work over the next 3 months (£) */
+  expectedQuarterlyEarnings: number;
+  /** Threshold for the parent's age band (£ per 3 months) */
+  quarterlyThreshold: number;
+  /** Exempt: statutory leave, disability or carer */
+  exempt: boolean;
+}
+
+/**
+ * minimumIncomeTest
+ *
+ * Expected earnings over the next 3 months must be at least 16 hours/week at
+ * the minimum wage for the parent's age × 13 weeks. Only earned income counts
+ * (not rent, savings or dividends), and pension contributions do not reduce
+ * it. The self-employed can average over the tax year instead.
+ */
+export function minimumIncomeTest(parent: ParentIncome, config: TaxYearConfig): MinimumIncomeTest {
+  const sacrifice =
+    parent.salarySacrifice.pension +
+    (parent.salarySacrifice.ev?.annualLeaseCost ?? 0) +
+    parent.salarySacrifice.cycleToWork +
+    parent.salarySacrifice.other;
+  const annualEarnings =
+    parent.grossSalary - sacrifice + parent.bonus.expectedThisYear +
+    parent.cashAllowances + parent.selfEmploymentProfit;
+  const averaged = Math.max(annualEarnings, 0) / 4;
+  let expected = parent.expectedEarningsNext3Months ?? averaged;
+  if (parent.selfEmployed) expected = Math.max(expected, averaged);
+
+  const quarterlyThreshold = minimumIncomeQuarterly(config, parent.ageBand ?? "21_plus");
+  const exempt = parent.exemptFromMinimumIncome || parent.onStatutoryLeave;
+  return {
+    meets: exempt || expected >= quarterlyThreshold,
+    expectedQuarterlyEarnings: expected,
+    quarterlyThreshold,
+    exempt,
+  };
+}
+
+const gbp = (n: number) => `£${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+/**
  * parentWorkingEligibilityFlag
  *
  * Checks whether a single parent meets the working-parent income requirements:
- *   (a) ANI >= minimum income threshold (or exempt via statutory leave/disability/carer)
+ *   (a) expected earnings over the next 3 months >= minimum income threshold
+ *       (or exempt via statutory leave/disability/carer)
  *   (b) ANI <= £100,000 — hard cliff, no taper
  *
  * rules.md §2.2.1.
  */
 export function parentWorkingEligibilityFlag(
   ani: number,
-  isExemptFromMinimumIncome: boolean,
-  onStatutoryLeave: boolean,
+  minIncome: MinimumIncomeTest,
   config: TaxYearConfig
 ): EligibilityFlag {
-  const min = config.freeHours.minimumIncomeThreshold;
   const max = config.freeHours.maximumANIThreshold;
 
-  const meetsMin = isExemptFromMinimumIncome || onStatutoryLeave || ani >= min;
-
-  if (!meetsMin) {
+  if (!minIncome.meets) {
     return mkFlag(
       "not_eligible",
-      `Income (£${Math.round(ani).toLocaleString()}) is below the minimum working threshold ` +
-      `of £${min.toLocaleString()}/year (equivalent to 16 hours/week at NMW). ` +
+      `Expected earnings over the next 3 months (${gbp(Math.round(minIncome.expectedQuarterlyEarnings))}) are below ` +
+      `the minimum of ${gbp(minIncome.quarterlyThreshold)} (16 hours/week at the minimum wage for your age). ` +
       `Parents on statutory leave, with qualifying disabilities, or acting as registered carers are exempt.`,
-      min - ani
+      minIncome.quarterlyThreshold - minIncome.expectedQuarterlyEarnings
     );
   }
 
@@ -260,6 +335,47 @@ export function parentWorkingEligibilityFlag(
 // ---------------------------------------------------------------------------
 // Scheme A: Free Funded Childcare Hours
 // ---------------------------------------------------------------------------
+
+/** Start dates of the three terms that fall in a tax year: 1 Apr Y, 1 Sep Y, 1 Jan Y+1. */
+export function taxYearTermStarts(config: TaxYearConfig): Date[] {
+  const y = parseInt(config.taxYear.slice(0, 4), 10);
+  return [
+    new Date(Date.UTC(y, 3, 1)),
+    new Date(Date.UTC(y, 8, 1)),
+    new Date(Date.UTC(y + 1, 0, 1)),
+  ];
+}
+
+/**
+ * Funded hours per week for an age group.
+ *   receivedHours    — hours the household gets given its working-parent status
+ *   universalHours   — universal 15 hours (3–4 year olds only)
+ *   incrementalHours — extra hours working-parent status adds (potential)
+ */
+function termHours(
+  ageGroup: FreeHoursAgeGroup,
+  householdWorkingEligible: boolean,
+  config: TaxYearConfig,
+  rates: { under2: number; age2: number; age3to4: number }
+): { receivedHours: number; universalHours: number; incrementalHours: number; hourlyRate: number } {
+  const working = config.freeHours.workingParentHoursPerWeek;
+  const universal = config.freeHours.universalHoursPerWeek;
+  switch (ageGroup) {
+    case "9m_to_2yr":
+      return { receivedHours: householdWorkingEligible ? working : 0, universalHours: 0, incrementalHours: working, hourlyRate: rates.under2 };
+    case "age_2yr":
+      return { receivedHours: householdWorkingEligible ? working : 0, universalHours: 0, incrementalHours: working, hourlyRate: rates.age2 };
+    case "age_3_to_4yr":
+      return {
+        receivedHours: householdWorkingEligible ? working : universal,
+        universalHours: universal,
+        incrementalHours: working - universal,
+        hourlyRate: rates.age3to4,
+      };
+    default:
+      return { receivedHours: 0, universalHours: 0, incrementalHours: 0, hourlyRate: 0 };
+  }
+}
 
 /**
  * computeFreeHoursForChild
@@ -306,11 +422,9 @@ export function computeFreeHoursForChild(
   let universalHoursPerWeek = 0;
   let workingEligibilityFlag: EligibilityFlag;
   let universalEligibilityFlag: EligibilityFlag;
-  let hourlyRate = 0;
 
   switch (ageGroup) {
     case "under_9_months":
-      hourlyRate = 0;
       workingEligibilityFlag = mkFlag(
         "not_eligible",
         `Not yet eligible. Working parent entitlement begins ${eligibilityStartDate}.`,
@@ -324,7 +438,6 @@ export function computeFreeHoursForChild(
       break;
 
     case "9m_to_2yr":
-      hourlyRate = localRates.under2;
       universalEligibilityFlag = mkFlag(
         "not_eligible",
         "No universal entitlement for children aged 9 months to 2 years. " +
@@ -342,15 +455,15 @@ export function computeFreeHoursForChild(
       } else {
         workingEligibilityFlag = mkFlag(
           "not_eligible",
-          "Working parent conditions not met. Both parents must earn between " +
-          "£10,158 and £100,000 (ANI). No funded hours for this child.",
+          "Working parent conditions not met. Both parents must meet the minimum income test " +
+          `and have ANI of no more than £${config.freeHours.maximumANIThreshold.toLocaleString()}. ` +
+          "No funded hours for this child.",
           0
         );
       }
       break;
 
     case "age_2yr":
-      hourlyRate = localRates.age2;
       universalEligibilityFlag = mkFlag(
         "not_eligible",
         "The 15-hour universal entitlement for 2-year-olds applies only to disadvantaged " +
@@ -374,7 +487,6 @@ export function computeFreeHoursForChild(
       break;
 
     case "age_3_to_4yr":
-      hourlyRate = localRates.age3to4;
       // Universal 15 hrs: always available regardless of income — cannot be lost
       universalHoursPerWeek = universalHrs;
       universalEligibilityFlag = mkFlag(
@@ -410,51 +522,40 @@ export function computeFreeHoursForChild(
       break;
 
     case "school_age_or_over":
-      hourlyRate = 0;
       workingEligibilityFlag = mkFlag(
         "not_eligible",
-        "Child has reached compulsory school age. Free funded hours entitlement has ended.",
+        "Child has started reception or reached compulsory school age. Free funded hours entitlement has ended.",
         0
       );
       universalEligibilityFlag = mkFlag(
         "not_eligible",
-        "Child has reached compulsory school age.",
+        "Child has started reception or reached compulsory school age.",
         0
       );
       break;
   }
 
-  // ---- Monetary values -------------------------------------------------------
-
-  const workingParentAnnualValue = workingParentHoursPerWeek * termWeeks * hourlyRate;
-  const universalAnnualValue = universalHoursPerWeek * termWeeks * hourlyRate;
-
-  // incrementalWorkingParentValue represents the value GAINED by having working
-  // parent eligibility — equivalently, the value LOST when eligibility is removed.
-  //
-  // This is computed as the POTENTIAL increment, not the CURRENT received hours.
-  // It is the same whether the family is currently eligible or not, so that:
-  //   - The marginal rate chart correctly spikes at the £100k cliff
-  //   - The optimiser correctly values the benefit of restoring eligibility
-  //
-  // rules.md §2.2.4 and §9.5.
-  let incrementalWorkingParentHours: number;
-
-  if (ageGroup === "age_3_to_4yr") {
-    // Always 15 additional hours above the universal baseline.
-    // The child gets 15 universal hours regardless of working parent eligibility.
-    // The ADDITIONAL value from working parent status is the extra 15 hours.
-    incrementalWorkingParentHours = workingHrs - universalHrs; // Always 15
-  } else {
-    // For 9m_to_2yr and age_2yr: no universal baseline, so all working hours are incremental.
-    // Always 30 hours — this is the potential value regardless of current eligibility.
-    incrementalWorkingParentHours = workingHrs;
+  // ---- Monetary values: summed term by term over the tax year ----------------
+  // Each of the three terms in the tax year (summer, autumn, spring) is valued
+  // at the child's age group on the term start date, so a child who moves up
+  // an age band or starts reception part-way through the year is valued
+  // correctly. rules.md §2.2.4.
+  const weeksPerTerm = termWeeks / 3;
+  let workingParentAnnualValue = 0;
+  let universalAnnualValue = 0;
+  let incrementalWorkingParentValue = 0;
+  for (const termStart of taxYearTermStarts(config)) {
+    const group = getChildAgeGroup(child, termStart).ageGroup;
+    const t = termHours(group, householdWorkingEligible, config, localRates);
+    workingParentAnnualValue += t.receivedHours * weeksPerTerm * t.hourlyRate;
+    universalAnnualValue += t.universalHours * weeksPerTerm * t.hourlyRate;
+    incrementalWorkingParentValue += t.incrementalHours * weeksPerTerm * t.hourlyRate;
   }
 
-  const incrementalWorkingParentValue =
-    ageGroup === "under_9_months" || ageGroup === "school_age_or_over"
-      ? 0  // No incremental value for age groups outside the working parent scheme
-      : incrementalWorkingParentHours * termWeeks * hourlyRate;
+  // incrementalWorkingParentHours: the POTENTIAL extra hours from working
+  // parent status at the reference date, whether or not the household
+  // currently qualifies (so the cliff can be valued). rules.md §2.2.4 and §9.5.
+  const incrementalWorkingParentHours = termHours(ageGroup, true, config, localRates).incrementalHours;
 
   return {
     childIndex,
@@ -480,14 +581,85 @@ export function computeFreeHoursForChild(
  * computeChildAgeYears
  *
  * Returns a child's age in decimal years at the reference date.
- * Used for TFC eligibility age boundary checks.
+ * For display only; TFC eligibility uses tfcEligibleUntil.
  */
 export function computeChildAgeYears(dob: string, referenceDate: Date): number {
   const dobDate = new Date(dob + "T00:00:00Z");
   return (
-    (referenceDate.getFullYear() - dobDate.getFullYear()) * 12 +
-    (referenceDate.getMonth() - dobDate.getMonth())
+    (referenceDate.getUTCFullYear() - dobDate.getUTCFullYear()) * 12 +
+    (referenceDate.getUTCMonth() - dobDate.getUTCMonth())
   ) / 12;
+}
+
+/**
+ * tfcEligibleUntil
+ *
+ * A child stops being eligible for Tax-Free Childcare on the 1 September after
+ * their 11th birthday (16th if disabled). Returns that 1 September (UTC).
+ *
+ * rules.md §2.3.2.
+ */
+export function tfcEligibleUntil(child: ChildInfo, config: TaxYearConfig): Date {
+  const dob = new Date(child.dateOfBirth + "T00:00:00Z");
+  const limit = child.isDisabled ? config.tfc.ageLimitBirthdayDisabled : config.tfc.ageLimitBirthday;
+  const birthday = new Date(Date.UTC(dob.getUTCFullYear() + limit, dob.getUTCMonth(), dob.getUTCDate()));
+  const sept = new Date(Date.UTC(birthday.getUTCFullYear(), 8, 1));
+  return birthday < sept ? sept : new Date(Date.UTC(birthday.getUTCFullYear() + 1, 8, 1));
+}
+
+/** TFC eligibility of one child on a given date (from birth to tfcEligibleUntil). */
+export function isTFCEligibleChild(child: ChildInfo, date: Date, config: TaxYearConfig): boolean {
+  const dob = new Date(child.dateOfBirth + "T00:00:00Z");
+  return date >= dob && date < tfcEligibleUntil(child, config);
+}
+
+/**
+ * Start dates of the four 3-month TFC periods in a tax year
+ * (6 Apr, 6 Jul, 6 Oct, 6 Jan). Parents reconfirm every 3 months, and the
+ * cap applies per period, so the annual value is built up quarter by quarter.
+ */
+export function tfcQuarterStarts(config: TaxYearConfig): Date[] {
+  const y = parseInt(config.taxYear.slice(0, 4), 10);
+  return [
+    new Date(Date.UTC(y, 3, 6)),
+    new Date(Date.UTC(y, 6, 6)),
+    new Date(Date.UTC(y, 9, 6)),
+    new Date(Date.UTC(y + 1, 0, 6)),
+  ];
+}
+
+/**
+ * tfcTopUpValue
+ *
+ * Household TFC value ignoring parental eligibility. For each child:
+ *   top-up per quarter = min(20% × bill for the quarter, cap ÷ 4)
+ * summed over the quarters in which the child is eligible.
+ *
+ * `childBills` is what the parents pay each provider per year, per child,
+ * AFTER funded hours. The government pays £2 for every £8 the parent pays in,
+ * which is 20% of the provider's bill. The cap is per child account; it is
+ * not pooled across children.
+ *
+ * rules.md §2.3.4.
+ */
+export function tfcTopUpValue(
+  children: ChildInfo[],
+  childBills: number[],
+  config: TaxYearConfig
+): { maxTopUp: number; estimatedTopUp: number } {
+  const quarters = tfcQuarterStarts(config);
+  let maxTopUp = 0;
+  let estimatedTopUp = 0;
+  children.forEach((child, i) => {
+    const cap = child.isDisabled ? config.tfc.maxTopUpDisabledPerYear : config.tfc.maxTopUpPerChildPerYear;
+    const bill = Math.max(childBills[i] ?? 0, 0);
+    for (const q of quarters) {
+      if (!isTFCEligibleChild(child, q, config)) continue;
+      maxTopUp += cap / 4;
+      estimatedTopUp += Math.min((bill / 4) * config.tfc.topUpRate, cap / 4);
+    }
+  });
+  return { maxTopUp, estimatedTopUp };
 }
 
 /**
@@ -499,25 +671,22 @@ export function computeChildAgeYears(dob: string, referenceDate: Date): number {
  *
  * KEY RULES:
  * 1. If EITHER parent ANI > £100,000 → household loses TFC entirely (hard cliff).
- * 2. BOTH parents must earn >= minimum income threshold (unless exempt).
+ * 2. BOTH parents must meet the minimum income test (unless exempt).
  * 3. TFC is incompatible with Universal Credit and legacy Tax Credits.
- * 4. Child must be under 12 (under 17 if disabled).
- * 5. Government tops up £2 for every £8 parent spends (= 25% of parent spend).
- * 6. Maximum annual top-up: £2,000/child (£4,000 for disabled children).
+ * 4. Child is eligible until the 1 September after their 11th birthday (16th if disabled).
+ * 5. Government pays £2 for every £8 the parent pays in = 20% of the childcare bill.
+ * 6. Maximum top-up: £500 per child per 3-month period (£1,000 if disabled).
  */
 export function computeTFCEligibility(
   parentAANI: number,
   parentBANI: number | null,
-  parentAExemptFromMin: boolean,
-  parentAOnLeave: boolean,
-  parentBExemptFromMin: boolean,
-  parentBOnLeave: boolean,
+  parentAMinIncome: MinimumIncomeTest,
+  parentBMinIncome: MinimumIncomeTest | null,
   children: ChildInfo[],
-  estimatedAnnualChildcareSpend: number,
+  childBills: number[],
   config: TaxYearConfig,
   referenceDate: Date
 ): TFCResult {
-  const min = config.tfc.minimumIncomeThreshold;
   const max = config.tfc.maximumANIThreshold;
 
   // ---- Check 1: Maximum income (hard cliff) --------------------------------
@@ -543,24 +712,22 @@ export function computeTFCEligibility(
     };
   }
 
-  // ---- Check 2: Minimum income ---------------------------------------------
-  const parentAMeetsMin = parentAExemptFromMin || parentAOnLeave || parentAANI >= min;
-  const parentBMeetsMin =
-    parentBANI === null ||
-    parentBExemptFromMin ||
-    parentBOnLeave ||
-    parentBANI >= min;
+  // ---- Check 2: Minimum income (expected earnings, next 3 months) ----------
+  const failing = !parentAMinIncome.meets
+    ? { label: "Parent A", test: parentAMinIncome }
+    : parentBMinIncome && !parentBMinIncome.meets
+    ? { label: "Parent B", test: parentBMinIncome }
+    : null;
 
-  if (!parentAMeetsMin || !parentBMeetsMin) {
-    const failingParent = !parentAMeetsMin ? "Parent A" : "Parent B";
-    const failingANI = !parentAMeetsMin ? parentAANI : parentBANI!;
+  if (failing) {
     return {
       eligible: mkFlag(
         "not_eligible",
-        `${failingParent}'s income (£${Math.round(failingANI).toLocaleString()}) ` +
-        `is below the minimum threshold of £${min.toLocaleString()}/year. ` +
+        `${failing.label}'s expected earnings over the next 3 months ` +
+        `(${gbp(Math.round(failing.test.expectedQuarterlyEarnings))}) are below the minimum of ` +
+        `${gbp(failing.test.quarterlyThreshold)}. ` +
         `Parents on statutory leave, with qualifying disabilities, or acting as carers are exempt.`,
-        min - failingANI
+        failing.test.quarterlyThreshold - failing.test.expectedQuarterlyEarnings
       ),
       eligibleChildCount: 0,
       maxPossibleTopUpAnnual: 0,
@@ -569,37 +736,9 @@ export function computeTFCEligibility(
     };
   }
 
-  // ---- Count eligible children by age ---------------------------------------
-  const eligibleChildren = children.filter((child) => {
-    const ageYears = computeChildAgeYears(child.dateOfBirth, referenceDate);
-    const maxAge = child.isDisabled
-      ? config.tfc.maxChildAgeDisabledYears
-      : config.tfc.maxChildAgeYears;
-    return ageYears < maxAge;
-  });
-
-  const eligibleChildCount = eligibleChildren.length;
-
-  // ---- Maximum annual top-up ------------------------------------------------
-  const maxTopUpAnnual = eligibleChildren.reduce(
-    (sum, child) =>
-      sum + (child.isDisabled
-        ? config.tfc.maxTopUpDisabledPerYear
-        : config.tfc.maxTopUpPerChildPerYear),
-    0
-  );
-
-  // ---- Estimated actual top-up based on spend ------------------------------
-  // For every £8 parent pays in, govt adds £2 → top-up rate = 25% of parent spend
-  // i.e. top-up = spend × 0.25, capped at maxTopUpAnnual
-  const estimatedTopUp =
-    maxTopUpAnnual === 0
-      ? 0
-      : Math.min(
-          estimatedAnnualChildcareSpend *
-            (config.tfc.topUpRate / (1 - config.tfc.topUpRate)),
-          maxTopUpAnnual
-        );
+  // ---- Eligible children and value -------------------------------------------
+  const eligibleChildCount = children.filter((c) => isTFCEligibleChild(c, referenceDate, config)).length;
+  const { maxTopUp, estimatedTopUp } = tfcTopUpValue(children, childBills, config);
 
   // ---- At-risk proximity check ---------------------------------------------
   const gapA = max - parentAANI;
@@ -619,7 +758,7 @@ export function computeTFCEligibility(
       smallestGap
     ),
     eligibleChildCount,
-    maxPossibleTopUpAnnual: maxTopUpAnnual,
+    maxPossibleTopUpAnnual: maxTopUp,
     estimatedActualTopUpAnnual: estimatedTopUp,
     atRisk,
   };
@@ -653,8 +792,9 @@ export function grossAnnualChildBenefit(
  *
  * Calculates the HICBC charge and clawback fraction for a given higher-earner ANI.
  *
- * Formula (rules.md §2.4.3):
- *   retentionFraction = min((ANI − 60,000) / 20,000, 1.0)
+ * Formula (rules.md §2.4.3, ITEPA 2003 s.681C):
+ *   1% of Child Benefit for every complete £200 of ANI above £60,000
+ *   retentionFraction = min(floor((ANI − 60,000) / 200), 100) / 100
  *   charge = grossChildBenefit × retentionFraction
  *
  * Taper: £60,000 = 0% clawback; £80,000+ = 100% clawback.
@@ -669,10 +809,8 @@ export function computeHICBCCharge(
     higherEarnerANI - config.hicbc.startThreshold,
     0
   );
-  const retentionFraction = Math.min(
-    excess / config.hicbc.taperDenominator,
-    1.0
-  );
+  const stepSize = config.hicbc.taperDenominator / 100; // £200
+  const retentionFraction = Math.min(Math.floor(excess / stepSize), 100) / 100;
   // Round to pence to avoid floating-point display artifacts
   const charge = Math.round(grossChildBenefit * retentionFraction * 100) / 100;
   return { charge, retentionFraction };
@@ -690,7 +828,9 @@ export function computeHICBCCharge(
  * - Always register for Child Benefit — even if opting out of cash payments.
  *   Registration preserves NI credits (→ State Pension) and child's NI number at 16.
  * - If higher earner ANI >= £80,000: opt out of payments (100% clawback; no benefit to receiving).
- * - If ANI is £60,000–£80,000: keep payments but file Self Assessment for HICBC.
+ * - If ANI is £60,000–£80,000: keep payments and pay the HICBC, either through
+ *   the PAYE tax code (HMRC's online HICBC service) or through Self Assessment
+ *   if the higher earner already files a return.
  * - The HIGHER earner pays the charge, regardless of who receives the payments.
  */
 export function computeHICBC(
@@ -699,7 +839,8 @@ export function computeHICBC(
   parentBANI: number | null,
   childBenefitRegistered: boolean,
   childBenefitPaymentsElected: boolean,
-  config: TaxYearConfig
+  config: TaxYearConfig,
+  higherEarnerFilesSelfAssessment: { parentA: boolean; parentB: boolean } = { parentA: false, parentB: false }
 ): HICBCResult {
   const childCount = children.length;
   const grossAnnual = grossAnnualChildBenefit(childCount, config);
@@ -716,14 +857,21 @@ export function computeHICBC(
     : { charge: 0, retentionFraction: 0 };
 
   const netChildBenefitAnnual = childBenefitPaymentsElected
-    ? grossAnnual - hicbcCharge
+    ? Math.round((grossAnnual - hicbcCharge) * 100) / 100
     : 0;
 
-  // Self Assessment required when payments received AND ANI > £60,000
-  // rules.md §2.4.4.
-  const selfAssessmentRequired =
-    childBenefitPaymentsElected &&
-    higherEarnerANI > config.hicbc.startThreshold;
+  // HICBC is payable when payments are received and ANI > £60,000.
+  // Employees with no other reason to file can pay it through their PAYE tax
+  // code using HMRC's online service instead of registering for Self
+  // Assessment. Those with self-employment or property income still file a
+  // return and declare it there. rules.md §2.4.4.
+  const hicbcPayable = hicbcCharge > 0;
+  const filesSA =
+    higherEarnerLabel === "Parent B"
+      ? higherEarnerFilesSelfAssessment.parentB
+      : higherEarnerFilesSelfAssessment.parentA;
+  const selfAssessmentRequired = hicbcPayable && filesSA;
+  const payeOptionAvailable = hicbcPayable && !filesSA;
 
   // ---- Recommendation (rules.md §2.4.5) ------------------------------------
   let recommendation: HICBCResult["recommendation"];
@@ -746,7 +894,7 @@ export function computeHICBC(
       `Child Benefit is being fully clawed back by HICBC ` +
       `(100% withdrawal at ANI >= £${config.hicbc.fullClawbackThreshold.toLocaleString()}). ` +
       "There is no financial benefit to continuing payments. Elect to stop receiving them " +
-      "to eliminate the HICBC liability entirely and remove the Self Assessment obligation. " +
+      "to eliminate the HICBC liability and the need to report and pay it. " +
       "NI credits are preserved by the existing registration alone.";
   } else {
     // Either below HICBC threshold, partially affected, or already opted out
@@ -763,7 +911,10 @@ export function computeHICBC(
     recommendationReason =
       hicbcDescription +
       (selfAssessmentRequired
-        ? " Self Assessment must be filed annually to declare and pay the HICBC."
+        ? " Declare and pay the HICBC on your Self Assessment return."
+        : payeOptionAvailable
+        ? " You can pay the HICBC through your PAYE tax code using HMRC's online " +
+          "HICBC service, without registering for Self Assessment."
         : "");
   }
 
@@ -780,6 +931,7 @@ export function computeHICBC(
     netChildBenefitAnnual,
     retentionFraction,
     selfAssessmentRequired,
+    payeOptionAvailable,
     niCreditsPreserved,
     recommendation,
     recommendationReason,

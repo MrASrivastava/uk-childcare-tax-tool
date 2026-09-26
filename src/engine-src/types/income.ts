@@ -9,7 +9,7 @@
  * what data the UI must collect.
  */
 
-import type { TaxYear } from "./constants";
+import type { MinimumIncomeAgeBand, TaxYear } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Enumerations
@@ -191,10 +191,11 @@ export interface PersonalPensionContributions {
   reliefAtSourceNet: number;
 
   /**
-   * If the individual also contributes to a net-pay arrangement workplace pension
-   * (separate from any salary sacrifice), enter the gross contribution here.
-   * These reduce gross income before PAYE — already captured in Step 1 net income.
-   * Entering here allows the tool to verify Annual Allowance compliance.
+   * Gross employee contributions to a net pay arrangement workplace pension
+   * (e.g. the NHS scheme and many DB schemes), separate from salary sacrifice.
+   * The employer deducts these before PAYE, so the engine subtracts them from
+   * employment income in Step 1. They do not reduce NIC.
+   * grossSalary should still be the contractual salary before this deduction.
    */
   netPayArrangementGross: number;
 }
@@ -212,6 +213,15 @@ export interface PriorYearPensionAllowances {
   totalContributionsMinus1Year: number;
   totalContributionsMinus2Years: number;
   totalContributionsMinus3Years: number;
+
+  /**
+   * Whether the individual was a member of a registered pension scheme in each
+   * prior year. Carry-forward is only available from years of membership.
+   * Default true.
+   */
+  schemeMemberMinus1Year?: boolean;
+  schemeMemberMinus2Years?: boolean;
+  schemeMemberMinus3Years?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,11 +278,18 @@ export interface ParentIncome {
   selfEmploymentProfit: number;
 
   /**
-   * Net rental income (gross rent minus allowable expenses).
-   * Note: mortgage interest relief is restricted since April 2020 — basic rate credit only.
-   * The tool takes net rental profit as an input and adds it to ANI.
+   * Rental profit: gross rent minus allowable expenses, BEFORE mortgage interest
+   * and other finance costs. Since April 2020 none of the finance cost on
+   * residential property is deductible from rental income, so it does not
+   * reduce ANI. Enter finance costs separately in rentalFinanceCosts.
    */
   rentalIncomeNet: number;
+
+  /**
+   * Residential mortgage interest and other finance costs on let property.
+   * Not deducted from income or ANI; gives a 20% tax reduction instead.
+   */
+  rentalFinanceCosts?: number;
 
   /**
    * Non-ISA savings interest (gross amount).
@@ -348,6 +365,30 @@ export interface ParentIncome {
    * Exempts them from the minimum income requirement.
    */
   exemptFromMinimumIncome: boolean;
+
+  /**
+   * Expected earnings from work (employment and self-employment) over the next
+   * 3 months, for the childcare minimum income test. If omitted, the engine
+   * uses a quarter of annual cash earnings (salary after sacrifice, bonus,
+   * cash allowances and self-employment profit). Rental, savings and
+   * dividend income do not count.
+   */
+  expectedEarningsNext3Months?: number;
+
+  /** Age band for the minimum income test. Defaults to 21 and over. */
+  ageBand?: MinimumIncomeAgeBand;
+
+  /**
+   * TRUE if self-employed. A self-employed parent who won't earn enough in the
+   * next 3 months can average expected earnings over the tax year instead.
+   */
+  selfEmployed?: boolean;
+
+  /**
+   * Contracted hours per week. Used to check that salary sacrifice does not
+   * take pay below the National Minimum Wage. Defaults to 37.5.
+   */
+  contractedHoursPerWeek?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +408,21 @@ export interface ChildInfo {
    * Disabled = entitled to Disability Living Allowance or Personal Independence Payment.
    */
   isDisabled: boolean;
+
+  /**
+   * Optional annual childcare cost for this child BEFORE funded hours
+   * (what the provider would charge with no government funding).
+   * If omitted, HouseholdInputs.estimatedAnnualChildcareSpend is split
+   * evenly across children of Tax-Free Childcare age.
+   */
+  annualChildcareCost?: number;
+
+  /**
+   * TRUE if the child will not start reception in the September after their
+   * 4th birthday (e.g. a summer-born child whose start is deferred). Funded
+   * hours then run until compulsory school age instead.
+   */
+  deferredReception?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -374,11 +430,11 @@ export interface ChildInfo {
 // ---------------------------------------------------------------------------
 
 export interface LocalHourlyRates {
-  /** Government-funded hourly rate for under-2s in this local authority area */
+  /** Hourly rate for under-2s */
   under2: number;
-  /** Government-funded hourly rate for 2-year-olds */
+  /** Hourly rate for 2-year-olds */
   age2: number;
-  /** Government-funded hourly rate for 3–4-year-olds */
+  /** Hourly rate for 3–4-year-olds */
   age3to4: number;
 }
 
@@ -426,17 +482,30 @@ export interface HouseholdInputs {
   jurisdiction: Jurisdiction;
 
   /**
-   * Local authority hourly funding rates for the family's area.
-   * If not provided, the tool uses DEFAULT_LOCAL_HOURLY_RATES (national averages).
-   * Inner London rates are significantly higher than the national average.
+   * The family's nursery / provider hourly rate for each age band. A funded
+   * hour saves the family what the provider would otherwise charge, so this
+   * is what free hours are valued at. If not provided, the tool falls back to
+   * DEFAULT_LOCAL_HOURLY_RATES (national average funding rates), which usually
+   * understates the value.
    */
+  providerHourlyRates?: LocalHourlyRates;
+
+  /** @deprecated Use providerHourlyRates. Still honoured if providerHourlyRates is absent. */
   localHourlyRates?: LocalHourlyRates;
 
   /**
-   * Approximate annual childcare spend (used to calculate TFC value actually
-   * receivable, capped at max top-up). If 0, TFC value is shown as maximum possible.
+   * Total annual nursery / childcare fees BEFORE funded hours, across all
+   * children without their own annualChildcareCost. The engine subtracts the
+   * value of funded hours to get the bill the parents pay, and TFC adds 20%
+   * of that bill (capped per child).
    */
   estimatedAnnualChildcareSpend: number;
+
+  /**
+   * Optional ISO date (YYYY-MM-DD) to evaluate child ages and eligibility at.
+   * Defaults to today. Used by tests for deterministic results.
+   */
+  asOfDate?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +536,7 @@ export function createEmptyParentIncome(label: string): ParentIncome {
     cashAllowances: 0,
     selfEmploymentProfit: 0,
     rentalIncomeNet: 0,
+    rentalFinanceCosts: 0,
     savingsInterestNonISA: 0,
     dividendsNonISA: 0,
     pensionIncomeGross: 0,

@@ -19,6 +19,9 @@ import type { ParentIncome, RSUVest } from "../types/income";
 import type { ANIBreakdown } from "../types/output";
 import type { TaxYearConfig } from "../types/constants";
 
+/** Gross personal contributions always relievable, even with no earnings. */
+const RELIEVABLE_CONTRIBUTION_FLOOR = 3_600;
+
 // ---------------------------------------------------------------------------
 // RSU helpers
 // ---------------------------------------------------------------------------
@@ -45,6 +48,15 @@ function taxYearStartYear(taxYear: string): number {
   const year = parseInt(taxYear.slice(0, 4), 10);
   if (isNaN(year)) throw new Error(`Invalid tax year format: ${taxYear}`);
   return year;
+}
+
+/**
+ * A representative vest date inside a tax year (1 October of its start year),
+ * for inputs that record an RSU value without a real vest date. Any date
+ * between 6 April and 5 April would do; mid-year keeps well clear of both ends.
+ */
+export function rsuVestDateForTaxYear(taxYear: string): string {
+  return `${taxYearStartYear(taxYear)}-10-01`;
 }
 
 /**
@@ -184,6 +196,10 @@ export function calculateANI(
   // ---- RSU income ------------------------------------------------------
   const rsuIncome = calculateRSUTotal(parent, config);
 
+  // Net pay arrangement contributions are taken from pay before PAYE, so they
+  // reduce employment income in Step 1 (rules.md §1.2 Step 1).
+  const netPayPension = parent.personalPensionContributions.netPayArrangementGross;
+
   // ---- STEP 1: Net income -----------------------------------------------
   // rules.md §1.2 Step 1:
   // Net income = post-sacrifice salary + all other taxable income
@@ -201,7 +217,8 @@ export function calculateANI(
     parent.savingsInterestNonISA +       // Non-ISA savings interest (full amount)
     parent.dividendsNonISA +             // Non-ISA dividends (full amount)
     parent.pensionIncomeGross +          // Pension / drawdown income
-    parent.otherTaxableIncome;           // Other taxable income
+    parent.otherTaxableIncome -          // Other taxable income
+    netPayPension;                       // Net pay pension: deducted by payroll before PAYE
 
   // ---- STEP 2: Gift Aid deduction ----------------------------------------
   // rules.md §1.2 Step 2: deduct grossed-up Gift Aid donations
@@ -211,10 +228,17 @@ export function calculateANI(
   // ---- STEP 3: Relief-at-source pension deduction -------------------------
   // rules.md §1.2 Step 3:
   // Only applies to relief-at-source arrangements.
-  // Net-pay and salary sacrifice pensions are already captured in Step 1 (post-sacrifice salary).
-  // Gross = net contribution ÷ 0.8
-  const step3PensionDeduction =
-    parent.personalPensionContributions.reliefAtSourceNet / 0.8;
+  // Net-pay and salary sacrifice pensions are already captured in Step 1.
+  // Gross = net contribution ÷ 0.8, limited to the contributions that attract
+  // relief: the higher of £3,600 and relevant UK earnings (rules.md §4.2).
+  const relevantUKEarnings =
+    sacrifice.postSacrificeSalary + sacrifice.evBiKIncome + bik.total +
+    parent.bonus.expectedThisYear + rsuIncome + parent.cashAllowances +
+    parent.selfEmploymentProfit - netPayPension;
+  const step3PensionDeduction = Math.min(
+    parent.personalPensionContributions.reliefAtSourceNet / 0.8,
+    Math.max(RELIEVABLE_CONTRIBUTION_FLOOR, relevantUKEarnings)
+  );
 
   // ---- STEP 4: Add-back (s.457/458) ---------------------------------------
   // rules.md §1.2 Step 4: add back trade union / police organisation payments
@@ -241,6 +265,7 @@ export function calculateANI(
     salarySacrifice_cycleToWork: sacrifice.cycleToWork,
     salarySacrifice_other: sacrifice.other,
     postSacrificeSalary: sacrifice.postSacrificeSalary,
+    netPayPensionContributions: netPayPension,
 
     bonusIncome: parent.bonus.expectedThisYear,
     rsuIncome,
@@ -256,6 +281,7 @@ export function calculateANI(
     dividendsNonISA: parent.dividendsNonISA,
     pensionIncomeGross: parent.pensionIncomeGross,
     otherTaxableIncome: parent.otherTaxableIncome,
+    relevantUKEarnings,
 
     step1NetIncome,
     step2GiftAidDeduction,
@@ -315,21 +341,20 @@ export function calculateEmployeeNIC(
 ): { employmentIncomeForNIC: number; employeeNIC: number } {
   const sacrifice = calculateSalarySacrifice(parent, config);
   const startYear = taxYearStartYear(config.taxYear);
-  const bik = calculateBiK(parent);
 
   // RSU gross values for NIC (not net of employer NIC transfer — see rules.md §6.4)
   const rsuGrossForNIC = parent.rsuVests
     .filter((v) => isVestInTaxYear(v.vestDate, startYear))
     .reduce((sum, v) => sum + v.grossValue, 0);
 
-  // Employment income for NIC purposes:
-  // Post-sacrifice salary + BiK + bonuses + cash allowances + RSU GROSS values
-  // (not reduced by transferred employer NIC for NIC purposes)
+  // Employment income for Class 1 NIC purposes:
+  // Post-sacrifice salary + bonuses + cash allowances + RSU GROSS values
+  // (not reduced by transferred employer NIC for NIC purposes).
+  // Benefits in kind are NOT included: they attract employer-only Class 1A NIC.
+  // Net pay pension contributions do NOT reduce the NIC base.
   // Non-employment income (rental, savings, dividends) is NOT subject to NIC.
   const employmentIncomeForNIC =
     sacrifice.postSacrificeSalary +
-    sacrifice.evBiKIncome +
-    bik.total +
     parent.bonus.expectedThisYear +
     rsuGrossForNIC +
     parent.cashAllowances;
@@ -349,47 +374,155 @@ export function calculateEmployeeNIC(
 // Income tax calculation
 // ---------------------------------------------------------------------------
 
+type TaxBandRow = { bandName: string; taxableIncome: number; rate: number; taxCharged: number };
+
 /**
  * calculateIncomeTax
  *
- * Calculates income tax on the full ANI less the personal allowance.
- * Applies England/Wales/NI rates unless scotlandResident is true.
+ * Calculates income tax on Step 1 net income less the personal allowance.
+ * The personal allowance itself is derived from ANI (the taper).
  *
- * Note: The personal allowance interacts with the taper; taxable income
- * is ANI minus the effective personal allowance.
+ * Relief for relief-at-source pension contributions and Gift Aid is NOT given
+ * by deducting them from taxable income. The payer already receives basic-rate
+ * relief (the pension scheme / charity reclaims 20%). Any higher-rate relief
+ * is given by extending the band thresholds above the basic rate by the gross
+ * contribution. rules.md §4.2 and §4.3.
+ *
+ * Income is taxed in the statutory order (rules.md §5.4):
+ *   1. Non-savings income — Scottish bands if scotlandResident, else UK bands
+ *   2. Savings interest   — UK bands, starting rate for savings, Personal Savings Allowance
+ *   3. Dividends          — UK bands at dividend rates, after the Dividend Allowance
+ * The personal allowance is set against non-savings income first.
+ * Savings and dividends use the UK bands even for Scottish taxpayers.
+ *
+ * Rental finance costs (mortgage interest) are not deductible; they give a
+ * basic-rate tax reduction instead (rules.md §1.2 Step 1).
  */
 export function calculateIncomeTax(
-  ani: number,
+  aniBreakdown: ANIBreakdown,
   effectivePA: number,
   parent: ParentIncome,
   config: TaxYearConfig
-): { taxableIncome: number; totalIncomeTax: number; bands: Array<{ bandName: string; taxableIncome: number; rate: number; taxCharged: number }> } {
-  const taxableIncome = Math.max(ani - effectivePA, 0);
+): { taxableIncome: number; totalIncomeTax: number; bands: TaxBandRow[]; taxReductions: number } {
+  const bandExtension = aniBreakdown.step2GiftAidDeduction + aniBreakdown.step3PensionDeduction;
 
-  const bands = parent.scotlandResident
-    ? config.scottishIncomeTaxBands.map((b) => ({ bandName: b.name, from: b.from, to: b.to, rate: b.rate }))
-    : config.incomeTaxBands.map((b, i) => ({
-        bandName: i === 0 ? "basic" : i === 1 ? "higher" : "additional",
-        from: b.from,
-        to: b.to,
-        rate: b.rate,
-      }));
+  const savings = Math.max(parent.savingsInterestNonISA, 0);
+  const dividends = Math.max(parent.dividendsNonISA, 0);
+  const nonSavings = aniBreakdown.step1NetIncome - savings - dividends;
 
-  const taxedBands: Array<{ bandName: string; taxableIncome: number; rate: number; taxCharged: number }> = [];
-  let remaining = taxableIncome;
-  let totalIncomeTax = 0;
+  // Personal allowance: non-savings first, then savings, then dividends
+  let paLeft = effectivePA;
+  const taxableNonSavings = Math.max(nonSavings - paLeft, 0);
+  paLeft = Math.max(paLeft - nonSavings, 0);
+  const taxableSavings = Math.max(savings - paLeft, 0);
+  paLeft = Math.max(paLeft - savings, 0);
+  const taxableDividends = Math.max(dividends - paLeft, 0);
+  const taxableIncome = taxableNonSavings + taxableSavings + taxableDividends;
 
-  for (const band of bands) {
-    if (remaining <= 0) break;
-    const bandWidth = band.to === Infinity ? remaining : Math.min(band.to - band.from, remaining);
-    const inBand = Math.min(remaining, bandWidth);
-    const charged = inBand * band.rate;
-    taxedBands.push({ bandName: band.bandName, taxableIncome: inBand, rate: band.rate, taxCharged: charged });
-    totalIncomeTax += charged;
-    remaining -= inBand;
-  }
+  const ukBands = extendBands(
+    config.incomeTaxBands.map((b, i) => ({
+      bandName: i === 0 ? "basic" : i === 1 ? "higher" : "additional",
+      from: b.from,
+      to: b.to,
+      rate: b.rate,
+    })),
+    bandExtension,
+    0
+  );
+  const nonSavingsBands = parent.scotlandResident
+    ? extendBands(
+        config.scottishIncomeTaxBands.map((b) => ({ bandName: b.name, from: b.from, to: b.to, rate: b.rate })),
+        bandExtension,
+        1
+      )
+    : ukBands;
 
-  return { taxableIncome, totalIncomeTax, bands: taxedBands };
+  const rows: TaxBandRow[] = [];
+
+  // Charge `amount` of income stacked from `start` against `bands`, using
+  // `rateFor(bandIndex)` for the rate.
+  const charge = (
+    start: number,
+    amount: number,
+    prefix: string,
+    bands: typeof ukBands,
+    rateFor: (i: number) => number
+  ) => {
+    const end = start + amount;
+    bands.forEach((band, i) => {
+      const inBand = Math.max(Math.min(end, band.to) - Math.max(start, band.from), 0);
+      if (inBand <= 0) return;
+      const rate = rateFor(i);
+      rows.push({ bandName: prefix + band.bandName, taxableIncome: inBand, rate, taxCharged: inBand * rate });
+    });
+  };
+  const nilRate = (amount: number, bandName: string) => {
+    if (amount > 0) rows.push({ bandName, taxableIncome: amount, rate: 0, taxCharged: 0 });
+  };
+
+  // 1. Non-savings income
+  charge(0, taxableNonSavings, "", nonSavingsBands, (i) => nonSavingsBands[i].rate);
+  let position = taxableNonSavings;
+
+  // 2. Savings income
+  const basicRateLimit = ukBands[0].to;
+  const additionalRateThreshold = ukBands[ukBands.length - 1].from;
+  const psa =
+    taxableIncome > additionalRateThreshold
+      ? config.personalSavingsAllowance.additionalRate
+      : taxableIncome > basicRateLimit
+      ? config.personalSavingsAllowance.higherRate
+      : config.personalSavingsAllowance.basicRate;
+
+  let savingsLeft = taxableSavings;
+  const startingRate = Math.min(Math.max(config.startingRateForSavingsBand - position, 0), savingsLeft);
+  nilRate(startingRate, "savings starting rate");
+  position += startingRate;
+  savingsLeft -= startingRate;
+  const psaUsed = Math.min(psa, savingsLeft);
+  nilRate(psaUsed, "personal savings allowance");
+  position += psaUsed;
+  savingsLeft -= psaUsed;
+  charge(position, savingsLeft, "savings ", ukBands, (i) => ukBands[i].rate);
+  position += savingsLeft;
+
+  // 3. Dividend income
+  const dividendAllowanceUsed = Math.min(config.dividendAllowance, taxableDividends);
+  nilRate(dividendAllowanceUsed, "dividend allowance");
+  position += dividendAllowanceUsed;
+  const dividendRates = [config.dividendRates.basic, config.dividendRates.higher, config.dividendRates.additional];
+  charge(position, taxableDividends - dividendAllowanceUsed, "dividend ", ukBands, (i) => dividendRates[i]);
+
+  const grossTax = rows.reduce((sum, r) => sum + r.taxCharged, 0);
+
+  // Rental finance cost reducer: 20% of the lower of finance costs and rental profit
+  const financeCosts = Math.max(parent.rentalFinanceCosts ?? 0, 0);
+  const taxReductions = Math.min(
+    config.rentalFinanceCostReliefRate *
+      Math.min(financeCosts, Math.max(parent.rentalIncomeNet, 0)),
+    grossTax
+  );
+
+  return { taxableIncome, totalIncomeTax: grossTax - taxReductions, bands: rows, taxReductions };
+}
+
+/**
+ * Raises every band boundary from the upper limit of band `firstExtended`
+ * onwards by `extension`. For UK bands that is the basic-rate limit and
+ * above; for Scottish bands the starter band is left alone and the basic-rate
+ * limit and above are raised.
+ */
+function extendBands<T extends { from: number; to: number }>(
+  bands: T[],
+  extension: number,
+  firstExtended: number
+): T[] {
+  if (extension <= 0) return bands;
+  return bands.map((b, i) => ({
+    ...b,
+    from: i > firstExtended ? b.from + extension : b.from,
+    to: i >= firstExtended && b.to !== Infinity ? b.to + extension : b.to,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -411,17 +544,21 @@ export function calculatePensionCarryForward(
   if (parent.priorYearPensionAllowances === null) return null;
   if (parent.mpaaTriggered) return null; // Carry-forward cannot extend beyond MPAA for DC
 
-  const { totalContributionsMinus1Year, totalContributionsMinus2Years, totalContributionsMinus3Years } =
-    parent.priorYearPensionAllowances;
+  const prior = parent.priorYearPensionAllowances;
+  const [aa1, aa2, aa3] = config.pension.priorYearAnnualAllowances;
 
-  // For simplicity, we apply the current Annual Allowance to all prior years.
-  // In a production version this would use historical AA values.
-  const aa = config.pension.annualAllowance;
-  const carry1 = Math.max(aa - totalContributionsMinus1Year, 0);
-  const carry2 = Math.max(aa - totalContributionsMinus2Years, 0);
-  const carry3 = Math.max(aa - totalContributionsMinus3Years, 0);
+  // Unused allowance from each year, capped at that year's own Annual
+  // Allowance, and only for years in which the person was a scheme member.
+  // The current year's allowance is used first: callers add this on top of
+  // the remaining current-year headroom.
+  const unused = (aa: number, used: number, member: boolean | undefined) =>
+    member === false ? 0 : Math.max(aa - used, 0);
 
-  return carry1 + carry2 + carry3;
+  return (
+    unused(aa1, prior.totalContributionsMinus1Year, prior.schemeMemberMinus1Year) +
+    unused(aa2, prior.totalContributionsMinus2Years, prior.schemeMemberMinus2Years) +
+    unused(aa3, prior.totalContributionsMinus3Years, prior.schemeMemberMinus3Years)
+  );
 }
 
 /**

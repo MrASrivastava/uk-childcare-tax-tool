@@ -51,6 +51,8 @@ export interface ANIBreakdown {
   salarySacrifice_cycleToWork: number;
   salarySacrifice_other: number;
   postSacrificeSalary: number;           // grossSalary − totalSalarySacrifice
+  /** Net pay arrangement pension contributions deducted in Step 1 */
+  netPayPensionContributions: number;
 
   bonusIncome: number;
   rsuIncome: number;                     // Sum of vest values in this tax year (net of transferred employer NIC)
@@ -66,6 +68,8 @@ export interface ANIBreakdown {
   dividendsNonISA: number;
   pensionIncomeGross: number;
   otherTaxableIncome: number;
+  /** Relevant UK earnings: caps the relief-at-source contributions that attract relief */
+  relevantUKEarnings: number;
 
   /** Step 1 net income (sum of all above) */
   step1NetIncome: number;
@@ -123,13 +127,15 @@ export interface IncomeTaxResult {
   personalAllowance: number;
   bands: TaxBandResult[];
   totalIncomeTax: number;
+  /** Tax reductions applied after the band calculation (rental finance costs) */
+  taxReductions: number;
   /** Whether Scottish rates were applied */
   scottishRatesApplied: boolean;
 }
 
 export interface NICResult {
   parentLabel: string;
-  grossPayForNIC: number;             // Post-sacrifice employment income for NIC
+  grossPayForNIC: number;             // Post-sacrifice cash earnings for Class 1 NIC (excludes BiKs)
   employeeNIC: number;
   /** For information only — employer's NIC saving from any salary sacrifice */
   employerNICSavingFromSacrifice: number;
@@ -155,8 +161,17 @@ export interface HICBCResult {
    * rules.md §2.4.3.
    */
   retentionFraction: number;
-  /** Whether the higher earner must file Self Assessment due to HICBC */
+  /**
+   * Whether the HICBC must be declared on a Self Assessment return: the charge
+   * is payable AND the higher earner already files one (self-employment or
+   * property income).
+   */
   selfAssessmentRequired: boolean;
+  /**
+   * Whether the charge can be paid through the PAYE tax code using HMRC's
+   * online HICBC service instead of Self Assessment.
+   */
+  payeOptionAvailable: boolean;
   /**
    * Whether NI credits are preserved.
    * True when registered (even if opted out of payments) — registration alone preserves credits.
@@ -323,14 +338,19 @@ export interface OptimisationRecommendation {
   actionUnit: string;          // "pension contribution (gross)" | "net donation" | etc.
 
   /**
-   * Annual benefit restored by taking this action (£)
-   * = value of schemes restored + income tax saving on marginal income
+   * Annual value of support restored by taking this action (£): the change in
+   * net Child Benefit + Tax-Free Childcare + free-hours value, from re-running
+   * the whole household calculation with the action applied. For protective
+   * recommendations, the value at risk if ANI crosses the threshold.
    */
   annualBenefitRestored: number;
 
   /**
-   * Net annual gain = annualBenefitRestored − actionRequired
-   * Negative means the action costs more than it recovers (should not be recommended).
+   * Net annual gain: the change in household disposable cash (take-home pay +
+   * net Child Benefit + TFC + free-hours value) from re-running the whole
+   * household calculation with the action applied. Includes every tax, NIC
+   * and benefit effect on both parents. Excludes pension pot growth, which is
+   * reported separately in pensionPotIncrease.
    */
   netAnnualGain: number;
 
@@ -339,6 +359,14 @@ export interface OptimisationRecommendation {
    * as immediate net gain but a significant additional benefit to communicate)
    */
   pensionPotIncrease?: number;
+
+  /**
+   * "restore": an action that recovers support or tax now.
+   * "protective": a buffer against crossing a threshold the parent is close to;
+   * annualBenefitRestored is the value protected and netAnnualGain the cash
+   * cost of the buffer.
+   */
+  kind?: "restore" | "protective";
 
   /**
    * Contraindications or warnings for this recommendation
@@ -423,6 +451,9 @@ export interface CalculationResult {
    * rules.md §9.5 — "crossover point".
    */
   crossoverANI: number | null;
+
+  /** Crossover point per parent (Parent A's is also exposed as crossoverANI). */
+  crossoverANIByParent: { parentA: number | null; parentB: number | null };
 
   /**
    * Thresholds the household is approaching (within AT_RISK_BUFFER) but has not yet breached.

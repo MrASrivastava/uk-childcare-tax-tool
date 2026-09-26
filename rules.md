@@ -34,18 +34,18 @@ Net income = sum of all taxable income sources, less any pension contributions p
 
 | Source | Amount included | Notes |
 |---|---|---|
-| Employment salary (PAYE) | Gross amount | Before any salary sacrifice deductions |
+| Employment salary (PAYE) | Gross amount, less salary sacrifice and net pay arrangement pension contributions | Net pay contributions are deducted by payroll before PAYE |
 | Annual / performance bonus | Gross amount in year of payment | Single-year spike risk |
 | Overtime pay | Gross amount | |
 | Commission | Gross amount | |
 | RSUs — restricted stock units | Market value of shares at vest date | Taxed as employment income via PAYE at vest. See Section 1.3 for detail |
 | Benefits in Kind (P11D) — company car (non-EV) | P11D value × BiK% (17–37%) | Added to employment income |
-| Benefits in Kind (P11D) — company car (EV) | P11D value × BiK% (3% in 2025/26) | See BiK rate schedule in Section 1.4 |
+| Benefits in Kind (P11D) — company car (EV) | P11D value × BiK% (3% in 2025/26, 4% in 2026/27) | See BiK rate schedule in Section 1.4 |
 | Benefits in Kind (P11D) — private medical insurance | Cost of employer premium | Very commonly overlooked |
 | Benefits in Kind (P11D) — other cash equivalent benefits | As declared on P11D | |
 | Cash allowances (car, phone, etc.) | Full gross value | Both income tax AND NIC apply; different from salary sacrifice |
 | Self-employment / trading profit | Net profit after allowable business expenses | Trading losses may offset |
-| Rental income | Net rental profit (gross rent minus allowable expenses) | Note: mortgage interest relief restricted since April 2020 — basic rate credit only |
+| Rental income | Rental profit (gross rent minus allowable expenses) **before** mortgage interest and other finance costs | Since April 2020 none of the residential finance cost is deductible; relief is a 20% tax reduction on the lower of finance costs and rental profit, which does not reduce ANI |
 | Savings interest (non-ISA) | Full gross amount | Personal Savings Allowance (£500 at 40% rate; £0 at 45%) reduces tax owed but does NOT reduce ANI |
 | Dividends (non-ISA) | Full gross amount | £500 Dividend Allowance reduces tax owed but does NOT reduce ANI |
 | Pension income (private, workplace, drawdown) | Full gross amount including lump sums | |
@@ -89,12 +89,14 @@ Step 3 deduction = net contribution paid by member ÷ 0.8
 
 Example: Member pays £8,000 net into a personal pension or SIPP → provider claims £2,000 basic rate relief → pension pot receives £10,000 → ANI reduced by £10,000.
 
+**Relief cap:** Only contributions that attract relief are deducted. The maximum gross personal contribution that attracts relief in a year is the higher of **£3,600** and the individual's **relevant UK earnings** chargeable to income tax (employment and self-employment income; not rental, savings or dividend income).
+
 **Critical distinction — pension types and their ANI treatment:**
 
 | Pension arrangement | ANI mechanism | NIC saving? |
 |---|---|---|
 | **Salary sacrifice pension** | Reduces gross salary before Step 1 assessment. Does NOT appear as a Step 3 deduction. Reduces ANI by reducing the baseline income. | Yes — employer and employee NIC both reduced on sacrificed amount |
-| **Net pay arrangement** (most workplace schemes) | Contribution deducted from gross pay before PAYE. Reduces gross salary figure → reduces Step 1 net income. No Step 3 deduction applies. | No direct NIC saving |
+| **Net pay arrangement** (e.g. NHS, many DB and occupational schemes) | Contribution deducted from gross pay before PAYE. Reduces Step 1 net income. No Step 3 deduction applies. The tool collects it as a separate input and subtracts it in Step 1. | No — NIC is charged on pay before the deduction |
 | **Relief at source** (personal pension, SIPP, some group schemes) | Member pays net; provider grosses up. Deducted at Step 3. | No NIC saving |
 | **Retirement annuity contract (pre-1988)** | Contribution paid gross (without prior relief). Deducted at Step 1. | No NIC saving |
 
@@ -172,10 +174,19 @@ All three schemes (free hours, TFC, Child Benefit) share the concept of ANI as t
 #### 2.2.1 Eligibility criteria
 
 **Minimum income requirement (per working parent):**
-- Must earn at least the equivalent of 16 hours per week at the National Minimum Wage (NMW)
-- April 2025 NMW rate: £12.21/hour → minimum = 16 × £12.21 × 52 = **£10,158/year**
-- This threshold updates each April when NMW changes. The tool must parameterise this value.
-- Exception: a parent is exempt from the minimum income requirement if they are in receipt of certain disability benefits, or if the other parent is working and the non-working parent provides care
+- Each parent must **expect to earn**, from work, at least the equivalent of 16 hours per week at the National Minimum Wage / National Living Wage for their age **over the next 3 months** (16 × rate × 13 weeks)
+- Only earned income counts (employment and self-employment). Rental, savings and dividend income do not count, and pension contributions do not reduce it. This is **not** an ANI test.
+
+| Age band | 2025/26 rate | 3-month minimum | 2026/27 rate | 3-month minimum |
+|---|---|---|---|---|
+| 21 and over | £12.21 | £2,539.68 | £12.71 | £2,643.68 |
+| 18 to 20 | £10.00 | £2,080.00 | £10.85 | £2,256.80 |
+| Under 18 or apprentice | £7.55 | £1,570.40 | £8.00 | £1,664.00 |
+
+- Annual equivalent for 21 and over: £10,158.72 (2025/26), £10,574.72 (2026/27)
+- The self-employed can average expected earnings over the tax year if they won't earn enough in the next 3 months
+- This threshold updates each April when NMW changes. The tool parameterises it by tax year and age band.
+- Exception: a parent is exempt from the minimum income requirement if they are on statutory leave, in receipt of certain disability benefits, or a carer
 
 **Maximum income requirement (per parent individually):**
 - ANI must not exceed **£100,000** for either parent
@@ -200,7 +211,7 @@ All three schemes (free hours, TFC, Child Benefit) share the concept of ANI as t
 
 The same term-start rule applies for the 2-year-old and 3-year-old milestones.
 
-**Entitlement ends:** The term before the child reaches compulsory school age (the beginning of the term following their fifth birthday).
+**Entitlement ends:** when the child starts in a reception class or reaches compulsory school age (the start of the term following their fifth birthday), **whichever comes first**. Most children start reception in the September after their 4th birthday, so for them funded hours end then. The tool assumes this unless the user marks reception as deferred.
 
 #### 2.2.2 Hours entitlement by age (England, from September 2025)
 
@@ -225,26 +236,27 @@ The same term-start rule applies for the 2-year-old and 3-year-old milestones.
 
 #### 2.2.4 Monetary value estimation
 
+A funded hour saves the family what the provider would otherwise charge for it, so the value is based on the **provider's hourly rate**, which is often well above the funding rate the council pays (especially in London).
+
 ```
-Annual value = funded_hours_per_week × term_weeks × local_hourly_rate
+Annual value = Σ over the 3 terms in the tax year (summer, autumn, spring):
+               funded_hours_per_week(age group at term start) × (38 ÷ 3) weeks × provider_hourly_rate
 ```
 
-The government sets national funding rates paid to local authorities. Local authorities set provider rates. Average national rates (2025/26 guidance):
-- Under 2s: ~£11.00/hour
-- 2-year-olds: ~£9.00/hour
-- 3–4-year-olds: ~£7.50/hour
+Valuing term by term handles a child who moves up an age band or starts reception part-way through the tax year.
 
-These figures are indicative. The tool should use configurable regional rates. Inner London rates are significantly higher.
+If the user does not enter their provider's rate, the tool falls back to the 2026/27 national average funding rates, which usually **understate** the value:
+- Under 2s: £12.04/hour
+- 2-year-olds: £8.90/hour
+- 3–4-year-olds: £6.42/hour
 
-**Default calculation for the tool (national average):**
+**Example at the fallback rates (full year in one age band):**
 ```
 30-hour entitlement value per child per year:
-  Under 2: 30 × 38 × £11.00 = £12,540
-  Age 2:   30 × 38 × £9.00  = £10,260
-  Age 3-4: 30 × 38 × £7.50  = £8,550
-  
-  (compared to universal 15hr value for age 3-4: 15 × 38 × £7.50 = £4,275)
-  Incremental value of working parent entitlement for age 3-4: £8,550 − £4,275 = £4,275
+  Under 2: 30 × 38 × £12.04 = £13,725.60
+  Age 2:   30 × 38 × £8.90  = £10,146.00
+  Age 3-4: 30 × 38 × £6.42  = £7,318.80
+  (universal 15hr value for age 3-4: 15 × 38 × £6.42 = £3,659.40)
 ```
 
 ---
@@ -254,7 +266,7 @@ These figures are indicative. The tool should use configurable regional rates. I
 #### 2.3.1 How the scheme works
 
 - Parent opens a TFC account via HMRC's Childcare Service
-- For every £8 paid in by the parent, the government tops up by £2 (= 20% basic rate tax relief)
+- For every £8 paid in by the parent, the government tops up by £2. That is 25% of the parent's deposit, which is **20% of the provider's bill**
 - Maximum government top-up: **£500 per child per quarter** (£2,000 per child per year)
 - To receive the maximum annual top-up, the parent must pay in £8,000 per child per year
 - For disabled children: maximum government top-up is £1,000 per quarter (£4,000/year); parent must pay in £16,000/year to receive maximum
@@ -263,7 +275,7 @@ These figures are indicative. The tool should use configurable regional rates. I
 #### 2.3.2 Eligibility criteria
 
 **Per-parent income test:**
-- Each parent must have ANI of at least £10,158/year (minimum income threshold — same as free hours)
+- Each parent must meet the minimum income test (expected earnings over the next 3 months — same as free hours, §2.2.1)
 - Each parent must have ANI of no more than £100,000
 - If either parent's ANI exceeds £100,000: the **entire family is disqualified** from TFC
 - This is a hard binary cliff edge. There is NO taper.
@@ -274,7 +286,7 @@ These figures are indicative. The tool should use configurable regional rates. I
   - Unable to work due to disability
   - A carer
 
-**Child's age:** The child must be under 12 years old (under 17 for disabled children).
+**Child's age:** A child is eligible until the **1 September after their 11th birthday** (16th birthday for disabled children).
 
 **Incompatible with:**
 - Universal Credit
@@ -295,12 +307,13 @@ If a parent's ANI exceeds £100,000 in a tax year and they continue to claim TFC
 #### 2.3.4 Monetary value
 
 ```
-Annual TFC benefit per child = min(childcare_spend ÷ 4, 2000)
+Bill paid by parents  = childcare cost before funded hours − value of funded hours
+TFC top-up per child  = Σ over eligible 3-month periods of min(20% × bill for the period, £500)
 ```
 
-Maximum value = £2,000/year/child (£4,000 for disabled children).
-
-If a family has two eligible children and spends ≥ £16,000/year on childcare, maximum TFC value = £4,000/year.
+- The cap is per child account (£500 per 3 months, £1,000 for disabled children); it is **not pooled** across children
+- Maximum value = £2,000/year/child (£4,000 for disabled children), reached when the bill paid is £10,000/year per child (£20,000 for disabled children)
+- A child who ages out part-way through the year is counted only for the periods in which they are eligible
 
 ---
 
@@ -310,7 +323,7 @@ If a family has two eligible children and spends ≥ £16,000/year on childcare,
 
 | Period | First/only child | Each additional child |
 |---|---|---|
-| 2025/26 | £25.60/week (£1,331/year) | £16.95/week (£881/year) |
+| 2025/26 | £26.05/week (£1,354.60/year) | £17.25/week (£897/year) |
 | 2026/27 (confirmed) | £27.05/week (~£1,407/year) | £17.90/week (~£931/year) |
 
 Payments made every 4 weeks. Pro-rated for partial year claims.
@@ -333,12 +346,10 @@ From April 2026, HMRC will allow individuals to claim NI credits retrospectively
 
 **Who pays:** The higher earner must pay the charge, regardless of which partner receives the Child Benefit payment.
 
-**Taper (from April 2024 onwards):**
+**Taper (from April 2024 onwards):** 1% of Child Benefit for every **complete** £200 of ANI above £60,000.
 ```
-HICBC = total_child_benefit_received × min((ANI − 60000) ÷ 20000, 1.0)
+HICBC = total_child_benefit_received × min(floor((ANI − 60000) ÷ 200), 100) ÷ 100
 ```
-
-This equates to: 1% of Child Benefit for every £200 of ANI above £60,000.
 
 | Higher earner's ANI | % of Child Benefit clawed back |
 |---|---|
@@ -353,33 +364,32 @@ This equates to: 1% of Child Benefit for every £200 of ANI above £60,000.
 **Worked example:**
 ```
 Family: 2 children, higher earner ANI = £76,000
-Annual Child Benefit = £1,331 + £881 = £2,212
-Excess over £60,000 = £16,000
-HICBC = £2,212 × (£16,000 / £20,000) = £2,212 × 0.8 = £1,770
-Net Child Benefit retained = £2,212 − £1,770 = £442/year
+Annual Child Benefit (2025/26) = £1,354.60 + £897.00 = £2,251.60
+Excess over £60,000 = £16,000 → 80 complete steps of £200 → 80%
+HICBC = £2,251.60 × 0.80 = £1,801.28
+Net Child Benefit retained = £2,251.60 − £1,801.28 = £450.32/year
 ```
 
 **Pre-April 2024 taper (for reference, do not apply to current years):**
 - Previously: 1% per £100 over £50,000; fully clawed back at £60,000.
 
-#### 2.4.4 Self Assessment obligation
+#### 2.4.4 Reporting and paying the HICBC
 
-If either partner's ANI exceeds £60,000 AND Child Benefit was received in the year, the higher earner must register for and complete Self Assessment. They must:
-- File a return by 31 January following the tax year
-- Declare and pay the HICBC via Self Assessment
-- Alternatively, if HICBC ≤ £3,000, may elect to have it collected via PAYE tax code (requires online return filed by 30 December)
+If the higher earner's ANI exceeds £60,000 AND Child Benefit was received in the year, the higher earner must pay the HICBC. There are two routes:
+- **PAYE (employees):** HMRC's online HICBC service lets people who are liable pay the charge through their PAYE tax code without registering for Self Assessment
+- **Self Assessment:** people who already need to file a return — for example because they have self-employment or property income — declare and pay the HICBC on it (file by 31 January following the tax year)
 
-Failure to register or file = late filing penalties + interest on unpaid tax.
+Failure to report the charge = penalties + interest on unpaid tax.
 
 #### 2.4.5 Opting out of Child Benefit payments
 
 A person may register to claim Child Benefit but elect not to receive the cash payment. This:
 - Eliminates the HICBC liability (no payment = no charge)
-- Eliminates the Self Assessment filing obligation arising from HICBC
+- Removes the need to report and pay the HICBC
 - Preserves NI credits
 - Preserves automatic NI number for the child
 
-**The tool must recommend this strategy** for any household where the higher earner's ANI is projected to be ≥ £80,000 and the family is not planning to reduce ANI below that level.
+**The tool must recommend this strategy** for any household where the higher earner's ANI is projected to be ≥ £80,000 (at £80,000 the charge is already 100%; only reducing ANI below £60,000 restores the full Child Benefit) and the family is not planning to reduce ANI below that level.
 
 ---
 
@@ -441,9 +451,9 @@ The combined effect for a family with two young children: earning £1 above £10
 - May reduce Statutory Maternity/Paternity Pay (SMP/SPP) if employer uses post-sacrifice salary as the basis
 - May reduce death-in-service and other salary-linked benefits
 - May reduce employer pension contributions if calculated as % of post-sacrifice salary (check employer policy)
-- Cannot reduce cash pay below National Minimum Wage (£12.21/hour × contracted hours in 2025/26)
+- Cannot reduce cash pay below National Minimum Wage (£12.21/hour in 2025/26, £12.71/hour in 2026/27, × hours actually worked)
 
-**2029 change warning:** From April 2029, employer NIC relief on salary sacrifice pension contributions will be subject to a cap. This does NOT affect the income tax or employee NIC efficiency of salary sacrifice. The tool must note this horizon where relevant but should not devalue salary sacrifice recommendations for the current period.
+**2029 change warning:** From April 2029, salary sacrifice pension contributions above **£2,000 a year** will be subject to both **employee and employer** NICs. The income tax and ANI effect is unchanged. The tool notes this horizon; the NIC saving it shows applies to years before 2029/30.
 
 ### 4.2 Relief-at-Source Personal Pension / SIPP
 
@@ -455,7 +465,9 @@ ANI reduction = net_contribution_paid ÷ 0.8
 
 **NIC saving:** None. This is the key disadvantage vs salary sacrifice.
 
-**Higher-rate relief:** The Step 3 deduction adjusts the taxpayer's tax bands, effectively restoring higher-rate relief automatically. No additional claim is needed for the ANI effect. (A separate higher-rate relief claim via Self Assessment may be needed to receive a rebate on the marginal rate difference, but this is a tax calculation matter, not an ANI matter.)
+**Higher-rate relief:** Relief is NOT given by deducting the contribution from taxable income. The provider claims basic-rate relief into the pot; any further relief is given by **extending the basic-rate and higher-rate band limits** by the gross contribution (Gift Aid works the same way). Income tax is therefore charged on Step 1 net income less the personal allowance (derived from ANI), with the extended bands. A basic-rate taxpayer gets no further relief through their tax bill.
+
+**Relief cap:** The gross personal contribution that attracts relief is limited to the higher of £3,600 and relevant UK earnings. Contributions above that do not reduce ANI.
 
 **Annual Allowance constraint:** Same as salary sacrifice — total contributions across all pensions must not exceed the Annual Allowance.
 
@@ -463,7 +475,8 @@ ANI reduction = net_contribution_paid ÷ 0.8
 - Unused Annual Allowance from up to 3 prior tax years may be carried forward
 - Must have been a member of a registered pension scheme in those years
 - Cannot carry forward if the MPAA has been triggered
-- Carry forward calculation: (prior year AA − prior year total contributions) × 3 years maximum
+- The current year's allowance is used first
+- Carry forward from each year = that year's own AA − that year's total contributions (the AA was £40,000 until 2022/23 and £60,000 from 2023/24)
 - This enables large one-off contributions in RSU vesting years or bonus years
 
 ### 4.3 Gift Aid
@@ -572,6 +585,10 @@ Scotland has its own income tax bands (administered by Revenue Scotland). Key di
 | Advanced rate | 45% | £75,001 – £125,140 |
 | Top rate | 48% | Over £125,140 |
 
+**2026/27:** the starter and basic thresholds rose 7.4% — starter £12,571 – £16,537, basic £16,538 – £29,526. Intermediate runs to £43,662; higher, advanced and top thresholds (£43,663 / £75,001 / £125,140) are frozen.
+
+Scottish rates and bands apply to **non-savings income only**. Savings and dividend income of Scottish taxpayers is taxed using the UK rates and bands (§5.4).
+
 **Scotland and childcare:** Scotland has its own childcare entitlement scheme (1,140 hours/year = 30 hours/week for 38 weeks, from age 3). Different funding rates and administration. The £100,000 ANI threshold for TFC applies UK-wide. The free hours threshold: the Scottish scheme has slightly different eligibility rules — the tool must clearly flag jurisdiction.
 
 ### 5.3 National Insurance Contributions (Class 1 Employee, 2025/26)
@@ -583,6 +600,25 @@ Scotland has its own income tax bands (administered by Revenue Scotland). Key di
 | Above £50,270 | 2% |
 
 **Impact of salary sacrifice on NIC:** NIC is calculated on post-sacrifice gross pay. All salary sacrifice arrangements reduce NIC at the applicable rate on the sacrificed amount.
+
+**Benefits in kind** are not subject to employee Class 1 NIC; the employer pays Class 1A NIC on them. Net pay arrangement pension contributions do not reduce the NIC base.
+
+### 5.4 Savings and dividend income
+
+Income is taxed in this order: non-savings income, then savings interest, then dividends. The personal allowance is set against non-savings income first.
+
+| Allowance / rate | 2025/26 | 2026/27 |
+|---|---|---|
+| Starting rate for savings (0%) | £5,000, reduced £1 for £1 by taxable non-savings income | same |
+| Personal Savings Allowance | £1,000 basic / £500 higher / £0 additional rate | same |
+| Dividend Allowance | £500 | £500 |
+| Dividend ordinary / upper / additional rate | 8.75% / 33.75% / 39.35% | 10.75% / 35.75% / 39.35% |
+
+The allowances are 0% bands: they still use up basic-rate and higher-rate band space. None of them reduce ANI.
+
+### 5.5 Rental finance costs
+
+Mortgage interest and other finance costs on residential lets are not deducted from rental income. They give a tax reduction of 20% × the lower of the finance costs and the rental profit. ANI includes rental profit before finance costs.
 
 ---
 
@@ -662,7 +698,7 @@ Once a person has flexibly accessed a money purchase pension (e.g. drawn down a 
 
 | Scheme | England | Scotland | Wales | Northern Ireland |
 |---|---|---|---|---|
-| Free funded hours (working parent) | 30 hrs, 9m+, ANI £10,158–£100k | 1,140 hrs/year from age 3 (different structure) | 30 hrs from age 3 for eligible working parents | Not available; NICSS subsidy scheme instead |
+| Free funded hours (working parent) | 30 hrs, 9m+, minimum 3-month earnings; ANI ≤ £100k | 1,140 hrs/year from age 3 (different structure) | 30 hrs from age 3 for eligible working parents | Not available; NICSS subsidy scheme instead |
 | Universal free hours | 15 hrs age 3–4 | 1,140 hrs/year from age 3 (universal) | 10 hrs age 3–4 (Moving to 30 hrs by 2027) | 12.5 hrs age 3–4 |
 | Tax-Free Childcare | UK-wide: same rules | Same | Same | Same |
 | Child Benefit / HICBC | UK-wide: same rules | Same (but Scottish income tax applies) | Same | Same |
@@ -695,9 +731,9 @@ When a user provides their inputs, the tool must compute in the following sequen
    = ANI for each parent individually
 
 5. Apply eligibility tests per parent:
-   a. Is ANI ≥ £10,158? (minimum income — working parent schemes)
+   a. Are expected earnings over the next 3 months ≥ the minimum for the parent's age band? (minimum income — working parent schemes; not an ANI test)
    b. Is ANI ≤ £100,000? (maximum income — TFC and free hours)
-   c. Is ANI ≤ £60,000 / £80,000? (HICBC thresholds)
+   c. Is ANI ≤ £60,000? (HICBC starts; 1% per complete £200 above, 100% at £80,000)
 
 6. Determine household eligibility:
    a. Free hours: both parents must meet conditions a and b
@@ -705,8 +741,8 @@ When a user provides their inputs, the tool must compute in the following sequen
    c. Child Benefit: universal; HICBC applied to higher earner's ANI
 
 7. Compute annual value of entitlements:
-   a. Free hours monetary value (by child age, local rate)
-   b. TFC maximum top-up (by number of eligible children)
+   a. Free hours monetary value (term by term, by child age at term start, provider's hourly rate)
+   b. TFC top-up: 20% of the bill paid after funded hours, capped per child per 3-month period
    c. Child Benefit gross (by number of children)
    d. HICBC deduction (applied to higher earner's ANI)
    e. Net Child Benefit value
@@ -714,7 +750,7 @@ When a user provides their inputs, the tool must compute in the following sequen
 8. Compute personal allowance (per parent):
    PA = max(12570 − max(ANI − 100000, 0) ÷ 2, 0)
 
-9. Compute income tax (per parent) applying PA and tax bands
+9. Compute income tax (per parent): Step 1 net income less PA, with band limits extended by gross Gift Aid and relief-at-source contributions; non-savings, savings and dividends taxed in order (§5.4); less the rental finance cost reduction
 
 10. Compute total family position:
     a. Parent A net take-home
@@ -727,15 +763,18 @@ When a user provides their inputs, the tool must compute in the following sequen
 11. Run optimisation:
     a. For each scheme that is lost: compute minimum ANI reduction required to restore
     b. For each mitigation lever available: compute ANI reduction per £ of action
-    c. Rank by: (benefit_restored − cost_of_action) for each scenario
-    d. Flag Annual Allowance headroom and carry-forward capacity
-    e. Flag NMW constraint on salary sacrifice
+    c. Price each action by re-running steps 1–10 for the whole household with the action applied: net gain = change in household disposable cash (pension pot growth reported separately). This captures joint eligibility (both parents must qualify for TFC and free hours) and any change in who is the higher earner
+    d. Rank by net gain
+    e. Flag Annual Allowance headroom and carry-forward capacity
+    f. Flag NMW constraint on salary sacrifice
     f. Flag mortgage / statutory pay implications of salary sacrifice
 ```
 
 ---
 
 ## PART 8: DATA INPUTS REQUIRED
+
+The authoritative definitions are in `src/engine-src/types/income.ts`; the sketch below lists what the tool collects.
 
 ### 8.1 Per-parent inputs
 
@@ -776,7 +815,8 @@ interface ParentIncome {
   
   // Non-employment income
   selfEmploymentProfit: number;           // Net trading profit
-  rentalIncome: number;                   // Net rental profit (after allowable expenses)
+  rentalIncome: number;                   // Rental profit before mortgage interest
+  rentalFinanceCosts: number;             // Mortgage interest etc. — 20% tax reduction, not an ANI deduction
   savingsInterestNonISA: number;          // Non-ISA savings interest
   dividendsNonISA: number;               // Non-ISA dividend income
   pensionIncome: number;                  // Any pension income / drawdown
@@ -784,6 +824,7 @@ interface ParentIncome {
   
   // Deductions
   personalPensionContributions: number;   // Net contributions to personal pension / SIPP
+  netPayPensionContributions: number;     // Net pay arrangement contributions (deducted in Step 1)
   giftAidDonations: number;               // Net charitable donations under Gift Aid
   
   // Pension status
@@ -792,8 +833,17 @@ interface ParentIncome {
     yearMinus1: number;
     yearMinus2: number;
     yearMinus3: number;
+    // plus scheme membership in each year
   };
   
+  // Minimum income test (§2.2.1)
+  expectedEarningsNext3Months?: number;   // Default: a quarter of annual earned income
+  ageBand: '21_plus' | '18_to_20' | 'under_18_or_apprentice';
+  selfEmployed: boolean;                  // May average over the tax year
+  onStatutoryLeave: boolean;
+  exemptFromMinimumIncome: boolean;       // Disability or carer
+  contractedHoursPerWeek?: number;        // For the NMW floor on salary sacrifice
+
   // Location
   scotlandResident: boolean;
 }
@@ -809,15 +859,19 @@ interface HouseholdInputs {
   children: Array<{
     dateOfBirth: Date;
     isDisabled: boolean;
+    annualChildcareCost?: number;         // Before funded hours; else household figure split
+    deferredReception?: boolean;          // Funded hours run to compulsory school age
   }>;
+
+  annualChildcareFees: number;            // Before funded hours
   
   childBenefitClaimed: boolean;
   childBenefitPaymentElected: boolean;    // false = registered but opted out of payments
   
   jurisdiction: 'england' | 'scotland' | 'wales' | 'northern_ireland';
   
-  localHourlyRate: {
-    under2: number;                       // Local authority funded rate, £/hr
+  providerHourlyRate: {                   // What the nursery charges, £/hr
+    under2: number;                       // Fallback: national average funding rate
     age2: number;
     age3to4: number;
   };

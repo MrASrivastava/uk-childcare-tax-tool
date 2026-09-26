@@ -25,7 +25,7 @@ import {
   ComposedChart,
   Line,
 } from "recharts";
-import { calculate, createEmptyParentIncome } from "./engine-src/index";
+import { calculate, createEmptyParentIncome, rsuVestDateForTaxYear, TAX_YEAR_2025_26, TAX_YEAR_2026_27 } from "./engine-src/index";
 import { generateReport } from "./generatePDF";
 import type {
   HouseholdInputs,
@@ -36,6 +36,8 @@ import type {
   OptimisationRecommendation,
   ANIBreakdown,
   PensionCapacity,
+  MinimumIncomeAgeBand,
+  TaxYear,
 } from "./engine-src/index";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,49 +110,56 @@ function Tip({ text, children }: { text: string; children?: React.ReactNode }) {
 const TT = {
   // ── Inputs ──────────────────────────────────────────────────────────────────
   grossSalary: `Your annual salary before any deductions — as shown on your employment contract. Include overtime and commission. Do NOT subtract pension or other salary sacrifice — enter those separately below.`,
-  bonus: `Any performance or discretionary bonus you expect to receive this tax year (6 Apr 2025 – 5 Apr 2026). A large bonus can push your Adjusted Net Income over the £100k childcare cliff in a single year.`,
+  bonus: `Any performance or discretionary bonus you expect to receive in the selected tax year (6 April – 5 April). A large bonus can push your Adjusted Net Income over the £100k childcare cliff in a single year.`,
   rsuVests: `Restricted Stock Units (RSUs) are shares given by your employer that 'vest' (become yours) on set dates. The market value of shares on the vest date counts as employment income and adds to your ANI — even if you don't sell them immediately.`,
   salarySacrifice: `Salary sacrifice means you and your employer formally agree to reduce your gross salary, and your employer pays the difference into your pension instead. This reduces your Adjusted Net Income before any tax is calculated, and also saves National Insurance for both you and your employer.`,
-  personalPension: `Money you pay into a personal pension or SIPP (Self-Invested Personal Pension) directly from your bank account. You enter the amount you actually paid — HMRC automatically adds 20% basic-rate tax relief. The gross amount (what you paid ÷ 0.8) is deducted from your Adjusted Net Income.`,
+  personalPension: `Money you pay into a personal pension or SIPP (Self-Invested Personal Pension) directly from your bank account. You enter the amount you actually paid — the provider claims 20% basic-rate relief and adds it to your pot. The gross amount (what you paid ÷ 0.8) is deducted from your Adjusted Net Income. Higher-rate relief comes through your tax bill: your basic-rate band is extended by the gross amount. Relief is limited to the higher of £3,600 and your UK earnings.`,
+  netPayPension: `Employee contributions to a workplace pension that uses a "net pay arrangement" — common in the NHS, teachers', civil service and many defined benefit schemes. Your employer takes the contribution from your pay before working out income tax, so it reduces your Adjusted Net Income in full. It does not reduce National Insurance. Check your payslip: if the pension is deducted before tax and it is not salary sacrifice, enter the annual amount here.`,
   giftAid: `Charitable donations made under Gift Aid. When you donate to a registered charity and tick the Gift Aid box, HMRC grosses up your donation by 20% (i.e. a £80 donation becomes £100 in the charity's account). The grossed-up amount reduces your Adjusted Net Income — so a £800 donation reduces ANI by £1,000.`,
   savingsInterest: `Interest earned from savings accounts, cash ISAs don't count. The Personal Savings Allowance (£500/year for higher-rate taxpayers) reduces the tax you owe, but does NOT reduce your ANI — the full interest amount always counts.`,
   dividends: `Dividends received from shares held outside an ISA. The first £500 is tax-free, but the full amount still counts towards your ANI. ISA dividends are excluded entirely.`,
-  rentalIncome: `Net profit from rental property — gross rent minus allowable expenses (repairs, agent fees, insurance, etc.). Note: since April 2020 mortgage interest is not fully deductible — you receive a 20% basic-rate tax credit instead. Enter the net profit figure.`,
-  evLease: `If your employer offers an Electric Vehicle through salary sacrifice, you give up part of your salary to cover the lease cost. This reduces your ANI (good). However, HMRC adds back a Benefit in Kind (BiK) charge of 3% of the car's list price (2025/26) — so the net ANI saving is: lease cost minus the BiK amount.`,
-  evP11D: `The 'P11D value' is the official list price of the car including factory options and VAT, as set by HMRC. It is used to calculate the Benefit in Kind tax. For a £35,000 EV in 2025/26: BiK = £35,000 × 3% = £1,050 added back to your income. The P11D value stays fixed for the life of the agreement.`,
+  rentalIncome: `Profit from rental property BEFORE mortgage interest — gross rent minus allowable expenses such as repairs, agent fees and insurance. Since April 2020 none of the mortgage interest on a residential let can be deducted, so it does not reduce your Adjusted Net Income. Enter the interest separately below; it gives a 20% tax reduction instead.`,
+  rentalFinanceCosts: `Mortgage interest and other finance costs on residential rental property. These are not deducted from rental income or ANI. Instead you get a tax reduction of 20% of the lower of these costs and your rental profit.`,
+  expectedEarnings: `The minimum income test for Tax-Free Childcare and 30 hours is based on what you expect to earn from work over the next 3 months, not your ANI. Rental, savings and dividend income don't count, and pension contributions don't reduce it. Leave at 0 to use a quarter of your annual pay, bonus, allowances and self-employment profit.`,
+  ageBand: `The minimum income test uses the minimum wage for your age: 16 hours a week for 13 weeks. Apprentices use the apprentice rate.`,
+  selfEmployed: `If you are self-employed and won't earn enough in the next 3 months, you can use your expected average earnings over the tax year instead.`,
+  nurseryRate: `What your nursery or childminder charges per hour. A funded hour saves you what the provider would otherwise charge, so this is what free hours are worth to you. Leave at 0 to use the national average council funding rate, which usually understates the value — especially in London.`,
+  deferredReception: `Funded hours stop when your child starts reception — for most children the September after they turn 4. Tick this if their start will be deferred; funded hours then continue until compulsory school age (the term after their 5th birthday).`,
+  evLease: `If your employer offers an Electric Vehicle through salary sacrifice, you give up part of your salary to cover the lease cost. This reduces your ANI (good). However, HMRC adds back a Benefit in Kind (BiK) charge of 3% of the car's list price (2025/26; 4% in 2026/27) — so the net ANI saving is: lease cost minus the BiK amount.`,
+  evP11D: `The 'P11D value' is the official list price of the car including factory options and VAT, as set by HMRC. It is used to calculate the Benefit in Kind tax. For a £35,000 EV in 2025/26: BiK = £35,000 × 3% = £1,050 added back to your income (4% = £1,400 in 2026/27). The P11D value stays fixed for the life of the agreement.`,
   cycleToWork: `The government's Cycle to Work scheme lets you sacrifice salary to cover the cost of a bike and cycling equipment. There's no official upper limit, though many employers cap it. There is no Benefit in Kind charge if the bike is mainly used for commuting.`,
   companyCarP11D: `The P11D value of an employer-provided company car (not through salary sacrifice). HMRC calculates Benefit in Kind tax as: P11D value × BiK rate. For petrol/diesel cars this ranges 17–37% depending on CO₂ emissions. This amount is added to your ANI as employment income.`,
-  carBiK: `The Benefit in Kind (BiK) rate for your car, set by HMRC based on CO₂ emissions. Electric vehicles: 3% (2025/26). Petrol/diesel: typically 20–37%. This percentage of the car's P11D value is added to your taxable income each year.`,
+  carBiK: `The Benefit in Kind (BiK) rate for your car, set by HMRC based on CO₂ emissions. Electric vehicles: 3% (2025/26), 4% (2026/27). Petrol/diesel: typically 20–37%. This percentage of the car's P11D value is added to your taxable income each year.`,
   pmi: `The annual premium your employer pays for your private health insurance. This is treated as a taxable Benefit in Kind — the full premium amount is added to your income for tax purposes and increases your ANI.`,
   cashAllowances: `Cash payments on top of your salary — for example, a car allowance paid in cash rather than through a company car scheme, or a phone allowance. These are fully taxable as employment income and subject to both income tax AND National Insurance.`,
   selfEmployment: `Net profit from self-employment or freelance work — your business income minus allowable expenses. If you have trading losses, these can reduce your ANI. IR35 and director's dividends are not modelled here.`,
   pensionIncome: `Income you receive from a pension — either a defined benefit scheme, drawdown from a SIPP, or an annuity. State Pension also counts. All pension income is fully taxable and adds to your ANI.`,
   mpaa: `Once you've flexibly accessed a defined contribution (DC) pension — for example by taking a lump sum from a SIPP — the Money Purchase Annual Allowance kicks in. This cuts your annual pension contribution limit from £60,000 to just £10,000. You can no longer carry forward unused allowances from previous years for DC pensions.`,
-  statutoryLeave: `Parents on maternity, paternity, adoption or shared parental leave are exempt from the minimum income requirement for Tax-Free Childcare and 30-hour free childcare. This means you remain eligible even if your income during leave falls below the minimum threshold of £10,158/year.`,
+  statutoryLeave: `Parents on maternity, paternity, adoption or shared parental leave are exempt from the minimum income requirement for Tax-Free Childcare and 30-hour free childcare. This means you remain eligible even if your earnings during leave fall below the minimum income threshold.`,
   scotlandResident: `Scottish residents pay income tax under different rates set by the Scottish Parliament. There are 6 bands in Scotland vs 3 in England. Higher earners in Scotland pay more income tax than in England. The ANI calculation, childcare thresholds, and TFC rules are identical across the UK.`,
   childBenefitRegistered: `Even if you expect to lose all of your Child Benefit to the High Income charge, it's worth registering. Registration preserves National Insurance credits (which count towards your State Pension) and ensures your child gets an NI number before age 16. You can register but opt out of receiving payments.`,
-  cbPayments: `If your (or your partner's) income is over £80,000, you lose all Child Benefit through the High Income Child Benefit Charge. In that case, electing NOT to receive payments avoids having to complete Self Assessment — while still preserving your NI credits if you're registered.`,
-  childcareSpend: `Your estimated total annual spend on nurseries, childminders, after-school clubs, and holiday clubs. This is used to calculate your Tax-Free Childcare top-up — the government adds 25p for every £1 you pay in, up to a maximum of £2,000 per child per year (£4,000 for disabled children).`,
+  cbPayments: `If your (or your partner's) income is over £80,000, you lose all Child Benefit through the High Income Child Benefit Charge. In that case, electing NOT to receive payments means there is no charge to report or pay — while still preserving your NI credits if you're registered.`,
+  childcareSpend: `Your total annual nursery, childminder, after-school and holiday club fees BEFORE any funded hours are taken off. The tool subtracts the value of funded hours to work out the bill you actually pay. Tax-Free Childcare adds £2 for every £8 you pay — 20% of that bill — up to £2,000 per child per year (£4,000 for disabled children).`,
   childDOB: `The child's date of birth determines which free childcare entitlement applies and when it starts. Eligibility begins the term after the child reaches the relevant age milestone — it does not start on the child's birthday.`,
-  childDisabled: `Children with disabilities have extended eligibility for Tax-Free Childcare: up to age 17 (vs 12 for non-disabled children), and the maximum government top-up doubles to £4,000/year (vs £2,000).`,
+  childDisabled: `Children with disabilities have extended eligibility for Tax-Free Childcare: until the 1 September after their 16th birthday (vs the 1 September after their 11th for other children), and the maximum government top-up doubles to £4,000/year (vs £2,000).`,
 
   // ── Eligibility panel ────────────────────────────────────────────────────────
   ani: `Adjusted Net Income (ANI) is the statutory measure defined in ITA 2007 s.58. It is NOT the same as your salary. ANI = salary (after sacrifice) + all other income − pension contributions (relief-at-source) − Gift Aid donations. Every childcare threshold and the personal allowance taper are tested against ANI, not your salary.`,
-  freeHours: `Working parents can receive up to 30 hours/week of government-funded childcare during term time (38 weeks/year), worth roughly £8,550/year for a 3-4 year old. Both parents must individually earn at least £10,158/year AND neither can earn more than £100,000. Losing this because one parent earns £1 over £100k is one of the most costly tax cliff edges in the UK.`,
-  tfc: `Tax-Free Childcare (TFC) is a government top-up scheme. For every £8 you deposit into a TFC account, HMRC adds £2 (= 25% top-up). Maximum: £2,000/year per child (£4,000 for disabled). If EITHER parent earns over £100,000, the whole family loses TFC completely — there is no gradual reduction. You must reconfirm eligibility every 3 months.`,
-  childBenefit: `Child Benefit is £25.60/week for your first child and £16.95/week for each additional child (2025/26). It is a universal benefit — anyone responsible for a child under 16 can claim. However, if the higher earner in the household has ANI over £60,000, a charge (HICBC) claws some or all of it back.`,
-  hicbc: `The High Income Child Benefit Charge (HICBC) claws back Child Benefit when the higher earner's ANI exceeds £60,000. The charge is: (ANI − £60,000) ÷ £20,000 × Child Benefit received. At £80,000 ANI it reaches 100% — all Child Benefit is repaid. The charge is paid via Self Assessment.`,
+  freeHours: `Working parents can receive up to 30 hours/week of government-funded childcare during term time (38 weeks/year), from 9 months old until the child starts reception. Both parents must each expect to earn at least 16 hours a week at the minimum wage over the next 3 months, AND neither can have ANI over £100,000. Losing this because one parent earns £1 over £100k is one of the most costly tax cliff edges in the UK.`,
+  tfc: `Tax-Free Childcare (TFC) is a government top-up scheme. For every £8 you pay in, the government adds £2 — so it covers 20% of your childcare bill. Maximum: £2,000/year per child (£4,000 for disabled). If EITHER parent earns over £100,000, the whole family loses TFC completely — there is no gradual reduction. You must reconfirm eligibility every 3 months.`,
+  childBenefit: `Child Benefit is £${TAX_YEAR_2025_26.childBenefit.firstChildWeekly.toFixed(2)}/week for your eldest or only child and £${TAX_YEAR_2025_26.childBenefit.additionalChildWeekly.toFixed(2)}/week for each additional child in 2025/26 (£${TAX_YEAR_2026_27.childBenefit.firstChildWeekly.toFixed(2)} and £${TAX_YEAR_2026_27.childBenefit.additionalChildWeekly.toFixed(2)} in 2026/27). It is a universal benefit — anyone responsible for a child under 16 can claim. However, if the higher earner in the household has ANI over £60,000, a charge (HICBC) claws some or all of it back.`,
+  hicbc: `The High Income Child Benefit Charge (HICBC) claws back Child Benefit when the higher earner's ANI exceeds £60,000. The charge is 1% of the Child Benefit received for every £200 of ANI above £60,000. At £80,000 ANI it reaches 100% — all Child Benefit is repaid. Employees can pay it through their PAYE tax code using HMRC's online HICBC service; if you already file Self Assessment (e.g. for rental or self-employment income), declare it on your return.`,
   pensionCapacity: `Annual Allowance is the maximum total pension contributions (from you and your employer combined) in a tax year. The standard limit is £60,000. Unused allowances from the previous 3 years can be carried forward. If you have accessed pension savings flexibly, the Money Purchase Annual Allowance (£10,000) applies instead.`,
   takeHome: `Net take-home pay is calculated as: gross salary minus salary sacrifice, minus income tax, minus National Insurance, minus any personal pension contributions paid, minus Gift Aid donations actually paid out. It represents the cash you receive in your bank account.`,
 
   // ── Optimise panel ────────────────────────────────────────────────────────────
   aniReduction: `To regain eligibility for this scheme, your Adjusted Net Income must fall by this amount — below the relevant threshold. The optimiser shows you which financial actions can achieve this reduction.`,
-  netGain: `Net annual gain = the value of benefits restored minus the personal cost of the action taken. A positive number means the household is better off overall after accounting for the cost. A negative number means the scheme is worth less than the cost of restoring it.`,
+  netGain: `Net annual gain = the change in your household's spendable money (take-home pay of both parents + Child Benefit + Tax-Free Childcare + free hours) if you take this action, worked out by re-running the whole calculation. It includes every tax and National Insurance effect. Money going into your pension is shown separately and is not counted here, so a pension action can show a small negative number while adding much more to your pot.`,
   benefitRestored: `The total annual financial value of childcare support that would be restored if you take this action — for example, free childcare hours, Tax-Free Childcare top-ups, or Child Benefit no longer clawed back.`,
   leverSalSac: `Salary sacrifice directly reduces the gross salary figure that enters your ANI calculation — it is the most efficient way to reduce ANI because it saves income tax, employee National Insurance (8% or 2%), and employer National Insurance (15%) simultaneously.`,
   leverSIPP: `A personal pension or SIPP contribution reduces ANI at Step 3 of the calculation. It saves income tax at your marginal rate but does not save National Insurance. It is less efficient than salary sacrifice, but available when your employer doesn't offer a salary sacrifice scheme.`,
   leverGiftAid: `Gift Aid donations are grossed up by 20% and deducted from ANI at Step 2. A £800 donation reduces ANI by £1,000. Cost-effective only if you were already planning to donate — not recommended purely as a tax planning strategy.`,
-  leverEV: `Leasing an electric car through salary sacrifice reduces your gross salary (and therefore ANI) by the lease cost, minus the Benefit in Kind added back. At the current 3% BiK rate, EV sacrifice is one of the most cost-effective ways to reduce ANI — and it also saves NIC.`,
+  leverEV: `Leasing an electric car through salary sacrifice reduces your gross salary (and therefore ANI) by the lease cost, minus the Benefit in Kind added back. The lease is real spending, so this only makes sense if you would pay for a car anyway; the net gain shown does not include the value of the car.`,
   leverISA: `Moving existing savings or investments into an ISA means the income they generate (interest, dividends) is excluded from ANI by law. This doesn't reduce income you've already earned — but prevents future investment income from pushing you over thresholds.`,
   leverBonusDeferral: `If your employer agrees to defer a discretionary bonus into the next tax year, it doesn't count as income this year. This works only for genuinely discretionary bonuses — it must be arranged before the bonus becomes legally payable.`,
   crossover: `The crossover point is the ANI at which your household's total net financial position (take-home pay + childcare benefits) recovers to match what it would have been at £99,999. Between £100,000 and the crossover, every extra pound earned makes the household worse off in total. Above the crossover, you're ahead again.`,
@@ -435,10 +444,12 @@ function ParentForm({
   parent,
   onChange,
   label,
+  taxYear,
 }: {
   parent: ParentIncome;
   onChange: (p: ParentIncome) => void;
   label: string;
+  taxYear: TaxYear;
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const set = useCallback(
@@ -485,7 +496,7 @@ function ParentForm({
           set({
             rsuVests:
               v > 0
-                ? [{ vestDate: "2025-10-01", grossValue: v, employerNICTransferred: false }]
+                ? [{ vestDate: rsuVestDateForTaxYear(taxYear), grossValue: v, employerNICTransferred: false }]
                 : [],
           })
         }
@@ -530,6 +541,20 @@ function ParentForm({
         hint="Grossed up ÷ 0.8 → ANI deduction at Step 3"
       />
       <NumField
+        label="Net pay workplace pension (annual)"
+        value={parent.personalPensionContributions.netPayArrangementGross}
+        tooltip={TT.netPayPension}
+        onChange={(v) =>
+          set({
+            personalPensionContributions: {
+              ...parent.personalPensionContributions,
+              netPayArrangementGross: v,
+            },
+          })
+        }
+        hint="Deducted before tax, not salary sacrifice (e.g. NHS)"
+      />
+      <NumField
         label="Gift Aid donations (net)"
         step={100}
         tooltip={TT.giftAid}
@@ -569,13 +594,23 @@ function ParentForm({
         hint="Dividend allowance reduces tax but NOT ANI"
       />
       <NumField
-        label="Net rental income"
+        label="Rental profit (before mortgage interest)"
         step={500}
         value={parent.rentalIncomeNet}
         tooltip={TT.rentalIncome}
         onChange={(v) => set({ rentalIncomeNet: v })}
-        hint="After allowable expenses"
+        hint="Rent minus allowable expenses, before finance costs"
       />
+      {parent.rentalIncomeNet > 0 && (
+        <NumField
+          label="Rental mortgage interest / finance costs"
+          step={500}
+          value={parent.rentalFinanceCosts ?? 0}
+          tooltip={TT.rentalFinanceCosts}
+          onChange={(v) => set({ rentalFinanceCosts: v })}
+          hint="Not deducted from ANI — 20% tax reduction"
+        />
+      )}
 
       {/* Advanced: EV sacrifice, P11D, cash allowances */}
       <button
@@ -647,7 +682,7 @@ function ParentForm({
                   },
                 })
               }
-              hint="List price — BiK = P11D × 3% (2025/26) adds back to ANI"
+              hint="List price — BiK = P11D × 3% (2025/26) / 4% (2026/27) adds back to ANI"
             />
           )}
           <NumField
@@ -706,7 +741,7 @@ function ParentForm({
                 }
                 style={{ width: "100%", padding: "4px 7px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 12 }}
               />
-              <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>EV = 3% · Petrol/diesel = 17–37%</div>
+              <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>EV = 3% (2025/26), 4% (2026/27) · Petrol/diesel = 17–37%</div>
             </div>
           )}
           <NumField
@@ -745,6 +780,48 @@ function ParentForm({
             tooltip={TT.pensionIncome}
             value={parent.pensionIncomeGross}
             onChange={(v) => set({ pensionIncomeGross: v })}
+          />
+
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#6b7280",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              marginBottom: 6,
+              marginTop: 4,
+            }}
+          >
+            Childcare minimum income test
+          </div>
+          <NumField
+            label="Expected earnings, next 3 months"
+            step={500}
+            tooltip={TT.expectedEarnings}
+            value={parent.expectedEarningsNext3Months ?? 0}
+            onChange={(v) => set({ expectedEarningsNext3Months: v > 0 ? v : undefined })}
+            hint="0 = a quarter of annual pay, bonus and self-employment profit"
+          />
+          <div style={{ marginBottom: 11 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b", marginBottom: 3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Age band <Tip text={TT.ageBand} />
+            </label>
+            <select
+              value={parent.ageBand ?? "21_plus"}
+              onChange={(e) => set({ ageBand: e.target.value as MinimumIncomeAgeBand })}
+              style={{ width: "100%", padding: "4px 7px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 12 }}
+            >
+              <option value="21_plus">21 or over</option>
+              <option value="18_to_20">18 to 20</option>
+              <option value="under_18_or_apprentice">Under 18 or apprentice</option>
+            </select>
+          </div>
+          <Toggle
+            label="Self-employed"
+            value={parent.selfEmployed ?? false}
+            tooltip={TT.selfEmployed}
+            onChange={(v) => set({ selfEmployed: v })}
           />
 
           <div
@@ -840,9 +917,20 @@ function ChildrenForm({
           <Toggle
             label="Disabled"
             value={child.isDisabled}
+            tooltip={TT.childDisabled}
             onChange={(v) => {
               const n = [...children];
               n[i] = { ...child, isDisabled: v };
+              onChange(n);
+            }}
+          />
+          <Toggle
+            label="Reception deferred"
+            value={child.deferredReception ?? false}
+            tooltip={TT.deferredReception}
+            onChange={(v) => {
+              const n = [...children];
+              n[i] = { ...child, deferredReception: v };
               onChange(n);
             }}
           />
@@ -878,6 +966,56 @@ function ChildrenForm({
         + Add child
       </button>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Household settings fields (shared by the inputs tab and the sidebar)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HouseholdSettingsFields({
+  inputs,
+  onHousehold,
+}: {
+  inputs: HouseholdInputs;
+  onHousehold: (patch: Partial<HouseholdInputs>) => void;
+}) {
+  const nurseryRate = inputs.providerHourlyRates?.age3to4 ?? 0;
+  return (
+    <>
+      <NumField
+        label="Annual childcare fees (before funded hours)"
+        step={1000}
+        value={inputs.estimatedAnnualChildcareSpend}
+        tooltip={TT.childcareSpend}
+        onChange={(v) => onHousehold({ estimatedAnnualChildcareSpend: v })}
+        hint="Funded hours are subtracted; TFC adds 20% of what you pay"
+      />
+      <NumField
+        label="Nursery hourly rate"
+        step={0.5}
+        value={nurseryRate}
+        tooltip={TT.nurseryRate}
+        onChange={(v) =>
+          onHousehold({
+            providerHourlyRates: v > 0 ? { under2: v, age2: v, age3to4: v } : undefined,
+          })
+        }
+        hint="0 = national average funding rate (usually understates)"
+      />
+      <Toggle
+        label="Child Benefit registered"
+        value={inputs.childBenefitRegistered}
+        onChange={(v) => onHousehold({ childBenefitRegistered: v })}
+        tooltip={TT.childBenefitRegistered}
+      />
+      <Toggle
+        label="Receiving Child Benefit payments"
+        value={inputs.childBenefitPaymentsElected}
+        onChange={(v) => onHousehold({ childBenefitPaymentsElected: v })}
+        tooltip={TT.cbPayments}
+      />
+    </>
   );
 }
 
@@ -944,6 +1082,7 @@ function ANIWaterfall({ ani, label }: { ani: ANIBreakdown; label: string }) {
 
   const deductItems = [
     { l: "Salary sacrifice (total)", v: ani.totalSalarySacrifice },
+    { l: "Net pay pension contributions", v: ani.netPayPensionContributions },
     { l: "Gift Aid deduction (grossed up)", v: ani.step2GiftAidDeduction },
     { l: "Relief-at-source pension (grossed up)", v: ani.step3PensionDeduction },
   ].filter((x) => x.v !== 0);
@@ -1319,7 +1458,7 @@ function EligibilityPanel({ result }: { result: CalculationResult }) {
 
       <SchemeCard
         title="Tax-Free Childcare"
-        subtitle="Government tops up 25% of childcare spend · max £2,000/child/year"
+        subtitle="Government adds £2 for every £8 you pay (20% of the bill) · max £2,000/child/year"
         status={tfc.eligible.status}
         value={fmt(tfc.maxPossibleTopUpAnnual)}
         valueLabel="max annual top-up"
@@ -1369,7 +1508,12 @@ function EligibilityPanel({ result }: { result: CalculationResult }) {
         </div>
         {hicbc.selfAssessmentRequired && (
           <div style={{ marginTop: 6, fontSize: 12, color: "#dc2626" }}>
-            ⚠ Self Assessment required to declare HICBC
+            ⚠ Declare the HICBC on your Self Assessment return
+          </div>
+        )}
+        {hicbc.payeOptionAvailable && (
+          <div style={{ marginTop: 6, fontSize: 12, color: "#b45309" }}>
+            ⚠ HICBC is payable — you can pay it through your PAYE tax code using HMRC's online service
           </div>
         )}
       </SchemeCard>
@@ -1438,7 +1582,7 @@ function RecCard({ rec }: { rec: OptimisationRecommendation }) {
   const [open, setOpen] = useState(false);
   const priC = rec.priority === "high" ? "#dc2626" : rec.priority === "medium" ? "#d97706" : "#2563eb";
   const priBg = rec.priority === "high" ? "#fef2f2" : rec.priority === "medium" ? "#fffbeb" : "#eff6ff";
-  const isProactive = rec.aniReductionRequired === 0;
+  const isProactive = rec.kind === "protective" || rec.aniReductionRequired === 0;
 
   return (
     <div style={{
@@ -1481,7 +1625,7 @@ function RecCard({ rec }: { rec: OptimisationRecommendation }) {
 
           {/* Net gain */}
           <div style={{ textAlign: "right", flexShrink: 0 }}>
-            {rec.aniReductionRequired > 0 ? (
+            {!isProactive ? (
               <>
                 <div style={{ fontSize: 20, fontWeight: 800, color: rec.netAnnualGain >= 0 ? "#16a34a" : "#dc2626", lineHeight: 1 }}>
                   {rec.netAnnualGain >= 0 ? "+" : ""}{fmt(rec.netAnnualGain)}
@@ -1509,8 +1653,9 @@ function RecCard({ rec }: { rec: OptimisationRecommendation }) {
           <MetricGrid items={[
             { label: "ANI reduction", value: fmt(rec.aniReductionRequired), tooltip: TT.aniReduction },
             { label: "Action required", value: `${fmt(rec.actionRequired)} ${rec.actionUnit}` },
-            { label: "Benefit restored", value: fmt(rec.annualBenefitRestored), colour: "#16a34a", tooltip: TT.benefitRestored },
-            { label: "Net annual gain", value: fmt(rec.netAnnualGain), colour: rec.netAnnualGain >= 0 ? "#16a34a" : "#dc2626", tooltip: TT.netGain },
+            { label: isProactive ? "Value protected" : "Benefit restored", value: fmt(rec.annualBenefitRestored), colour: "#16a34a", tooltip: TT.benefitRestored },
+            { label: isProactive ? "Cash effect of buffer" : "Net annual gain", value: fmt(rec.netAnnualGain), colour: rec.netAnnualGain >= 0 ? "#16a34a" : "#dc2626", tooltip: TT.netGain },
+            ...(rec.pensionPotIncrease ? [{ label: "Added to pension", value: fmt(rec.pensionPotIncrease), colour: "#4f46e5" }] : []),
           ]} />
           {rec.warnings.filter(Boolean).map((w, i) => (
             <div key={i} style={{ fontSize: 11, color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 6, padding: "6px 10px", marginTop: 6 }}>
@@ -1532,8 +1677,9 @@ function OptimisePanel({ result }: { result: CalculationResult }) {
       </div>
     );
   }
-  const proactive = recs.filter((r) => r.aniReductionRequired === 0);
-  const restorative = recs.filter((r) => r.aniReductionRequired > 0);
+  const isProtective = (r: OptimisationRecommendation) => r.kind === "protective" || r.aniReductionRequired === 0;
+  const proactive = recs.filter(isProtective);
+  const restorative = recs.filter((r) => !isProtective(r));
 
   return (
     <div>
@@ -1545,7 +1691,7 @@ function OptimisePanel({ result }: { result: CalculationResult }) {
             <Tip text="These recommendations show the actions needed to get your ANI back below a threshold so you regain TFC, free childcare, or stop HICBC clawback. The 'net annual gain' includes the benefit restored minus the cost of the action." />
           </div>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>
-            Ranked by annual benefit restored. Expand each card for full details, costs, and warnings.
+            Ranked by net annual gain to the household (pension pot growth shown separately). Expand each card for full details, costs, and warnings.
           </div>
           {restorative.slice(0, 6).map((r, i) => <RecCard key={i} rec={r} />)}
         </>
@@ -1574,7 +1720,7 @@ function OptimisePanel({ result }: { result: CalculationResult }) {
 const RATE_ZONES = [
   { x1: 50, x2: 60,     bg: "rgba(16,185,129,0.07)",  border: "#10b981", label: "Below HICBC",  desc: "All major thresholds clear",          level: "safe" },
   { x1: 60, x2: 80,     bg: "rgba(245,158,11,0.09)",  border: "#f59e0b", label: "HICBC taper",  desc: "HICBC charge: 1% per £200 over £60k",  level: "warn" },
-  { x1: 80, x2: 100,    bg: "rgba(239,68,68,0.08)",   border: "#ef4444", label: "Full HICBC",   desc: "HICBC at 100% — full clawback rate",  level: "danger" },
+  { x1: 80, x2: 100,    bg: "rgba(239,68,68,0.08)",   border: "#ef4444", label: "Full HICBC",   desc: "HICBC fully charged — no further clawback",  level: "danger" },
   { x1: 100, x2: 125.14, bg: "rgba(124,58,237,0.1)",  border: "#7c3aed", label: "60% Trap",     desc: "TFC + free hours lost, PA shrinking", level: "critical" },
   { x1: 125.14, x2: 135, bg: "rgba(107,114,128,0.07)", border: "#9ca3af", label: "45% band",    desc: "Personal allowance gone",            level: "high" },
 ];
@@ -1644,7 +1790,8 @@ function ChartPanel({ result }: { result: CalculationResult }) {
       ? result.parentA.ani.adjustedNetIncome
       : result.parentB?.ani.adjustedNetIncome ?? result.parentA.ani.adjustedNetIncome;
 
-  const crossover = result.crossoverANI;
+  const crossover =
+    activeParent === "A" ? result.crossoverANIByParent.parentA : result.crossoverANIByParent.parentB;
 
   const currentPoint = chartData.find((d) => d.k * 1000 >= currentANI) ?? chartData[chartData.length - 1];
 
@@ -2007,10 +2154,10 @@ function InputsPanel({
 }) {
   return (
     <>
-      <ParentForm parent={inputs.parentA} onChange={onParentA} label="Parent A" />
+      <ParentForm parent={inputs.parentA} onChange={onParentA} label="Parent A" taxYear={inputs.taxYear} />
       <Toggle label="Has a partner / second parent" value={hasB} onChange={onHasB} />
       {hasB && inputs.parentB && (
-        <ParentForm parent={inputs.parentB} onChange={onParentB} label="Partner B" />
+        <ParentForm parent={inputs.parentB} onChange={onParentB} label="Partner B" taxYear={inputs.taxYear} />
       )}
       <ChildrenForm children={inputs.children} onChange={onChildren} />
       <div
@@ -2024,26 +2171,7 @@ function InputsPanel({
         <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#1f2937" }}>
           Household settings
         </div>
-        <NumField
-          label="Estimated annual childcare spend"
-          step={1000}
-          value={inputs.estimatedAnnualChildcareSpend}
-          tooltip={TT.childcareSpend}
-          onChange={(v) => onHousehold({ estimatedAnnualChildcareSpend: v })}
-          hint="Used to calculate TFC top-up actually receivable"
-        />
-        <Toggle
-          label="Child Benefit registered"
-          value={inputs.childBenefitRegistered}
-          onChange={(v) => onHousehold({ childBenefitRegistered: v })}
-          tooltip={TT.childBenefitRegistered}
-        />
-        <Toggle
-          label="Receiving Child Benefit payments"
-          value={inputs.childBenefitPaymentsElected}
-          onChange={(v) => onHousehold({ childBenefitPaymentsElected: v })}
-          tooltip={TT.cbPayments}
-        />
+        <HouseholdSettingsFields inputs={inputs} onHousehold={onHousehold} />
       </div>
     </>
   );
@@ -2272,14 +2400,14 @@ export default function App() {
         {tab === "inputs" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
-              <ParentForm parent={inputs.parentA} onChange={setA} label="Parent A" />
+              <ParentForm parent={inputs.parentA} onChange={setA} label="Parent A" taxYear={inputs.taxYear} />
               <Toggle
                 label="Has a partner / second parent"
                 value={hasB}
                 onChange={handleHasB}
               />
               {hasB && inputs.parentB && (
-                <ParentForm parent={inputs.parentB} onChange={setB} label="Partner B" />
+                <ParentForm parent={inputs.parentB} onChange={setB} label="Partner B" taxYear={inputs.taxYear} />
               )}
             </div>
             <div>
@@ -2295,24 +2423,7 @@ export default function App() {
                 <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#1f2937" }}>
                   Household settings
                 </div>
-                <NumField
-                  label="Estimated annual childcare spend"
-                  step={1000}
-                  value={inputs.estimatedAnnualChildcareSpend}
-                  onChange={(v) => patchHH({ estimatedAnnualChildcareSpend: v })}
-                />
-                <Toggle
-                  label="Child Benefit registered"
-                  value={inputs.childBenefitRegistered}
-                  onChange={(v) => patchHH({ childBenefitRegistered: v })}
-                  tooltip={TT.childBenefitRegistered}
-                />
-                <Toggle
-                  label="Receiving Child Benefit payments"
-                  value={inputs.childBenefitPaymentsElected}
-                  onChange={(v) => patchHH({ childBenefitPaymentsElected: v })}
-                  tooltip={TT.cbPayments}
-                />
+                <HouseholdSettingsFields inputs={inputs} onHousehold={patchHH} />
               </div>
             </div>
           </div>

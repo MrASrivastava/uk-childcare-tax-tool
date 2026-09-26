@@ -51,9 +51,10 @@ export {
   DEFAULT_LOCAL_HOURLY_RATES,
   TAX_YEAR_2025_26,
   TAX_YEAR_2026_27,
+  minimumIncomeQuarterly,
 } from "./types/constants";
 
-export type { TaxYear, TaxYearConfig } from "./types/constants";
+export type { TaxYear, TaxYearConfig, MinimumIncomeAgeBand } from "./types/constants";
 
 // Utility: empty parent template for UI forms
 export { createEmptyParentIncome } from "./types/income";
@@ -66,6 +67,7 @@ export {
   calculatePensionCarryForward,
   totalPensionContributionsThisYear,
   calculateRSUANIAmount,
+  rsuVestDateForTaxYear,
 } from "./engine/ani";
 
 export {
@@ -73,6 +75,7 @@ export {
   compulsorySchoolAgeDate,
   getChildAgeGroup,
   parentWorkingEligibilityFlag,
+  minimumIncomeTest,
   computeHICBC,
   computeTFCEligibility,
 } from "./engine/eligibility";
@@ -81,14 +84,22 @@ export {
   computeHICBCCharge,
   grossAnnualChildBenefit,
   computeChildAgeYears,
+  tfcEligibleUntil,
+  isTFCEligibleChild,
+  tfcTopUpValue,
   thresholdStatus,
   AT_RISK_BUFFER,
   mkFlag,
 } from "./engine/eligibility";
 
-export type { ChildAgeGroupResult } from "./engine/eligibility";
+export type { ChildAgeGroupResult, MinimumIncomeTest } from "./engine/eligibility";
 
-export { computeFreeHoursForChild } from "./engine/eligibility";
+export {
+  computeFreeHoursForChild,
+  receptionStartDate,
+  fundedHoursEndDate,
+  taxYearTermStarts,
+} from "./engine/eligibility";
 
 export { generateMarginalRateChart, computeCrossoverANI } from "./engine/calculator";
 export type { AtRiskThreshold } from "./types/output";

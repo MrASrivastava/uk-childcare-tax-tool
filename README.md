@@ -19,7 +19,7 @@ The UK childcare support system contains some of the sharpest financial cliff ed
 
 - Your **Adjusted Net Income (ANI)** — the statutory figure (ITA 2007 s.58) that controls all childcare thresholds and the personal allowance taper, which is distinct from your salary
 - Eligibility for **30-hour free childcare** (working parent entitlement, England, from September 2025) — worth up to ~£8,550/year per qualifying child aged 9 months to 4 years
-- Eligibility for **Tax-Free Childcare (TFC)** — the government's 25% top-up scheme, up to £2,000/child/year (£4,000 for disabled children)
+- Eligibility for **Tax-Free Childcare (TFC)** — the government adds £2 for every £8 you pay (20% of the childcare bill), up to £2,000/child/year (£4,000 for disabled children)
 - **High Income Child Benefit Charge (HICBC)** — the clawback that starts at £60,000 ANI and reaches 100% at £80,000
 - **Effective marginal rates** across £50k–£135k ANI, including the spike that can exceed 100% at the £100,001 cliff edge
 - **Ranked optimisation recommendations** — pension contributions, Gift Aid, EV salary sacrifice, and more — with precise net-gain calculations
@@ -59,7 +59,7 @@ npm run preview      # preview the built output locally
 Enter income details for one or two parents: gross salary, bonus, RSU vests, pension contributions (salary sacrifice and personal), Gift Aid, savings interest, dividends, rental income, EV salary sacrifice, company car P11D, private medical insurance, and more. Every field has a plain-English tooltip explaining what to enter and how it affects ANI.
 
 ### Eligibility tab
-Per-child breakdown of free childcare eligibility with annual monetary values, TFC eligibility with estimated actual top-up, and a detailed HICBC calculation including net Child Benefit, NI credits status, and Self Assessment obligation.
+Per-child breakdown of free childcare eligibility with annual monetary values, TFC eligibility with estimated actual top-up, and a detailed HICBC calculation including net Child Benefit, NI credits status, and whether the charge can be paid through PAYE or must go on a Self Assessment return.
 
 ### Optimise tab
 Ranked recommendations for actions that restore lost eligibility or protect existing eligibility, with net annual gain calculations, Annual Allowance checks, NMW breach detection, and plain-English explanations.
@@ -104,42 +104,18 @@ uk-childcare-tax-tool/
 The calculation engine is a self-contained, dependency-free TypeScript module. Import it directly:
 
 ```typescript
-import { calculate } from './engine-src/index';
+import { calculate, createEmptyParentIncome } from './engine-src/index';
 import type { HouseholdInputs } from './engine-src/index';
 
 const inputs: HouseholdInputs = {
   taxYear: '2025/26',
-  parentA: {
-    label: 'Parent A',
-    grossSalary: 105_000,
-    salarySacrifice: { pension: 0, ev: null, cycleToWork: 0 },
-    personalPensionContributions: { reliefAtSourceNet: 0 },
-    giftAidDonationsNet: 0,
-    bonus: { expectedThisYear: 0 },
-    rsuVests: [],
-    savingsInterestNonISA: 0,
-    dividendsNonISA: 0,
-    rentalIncomeNet: 0,
-    selfEmploymentProfit: 0,
-    pensionIncomeGross: 0,
-    cashAllowances: 0,
-    benefitsInKind: {
-      companyCarP11DValue: 0,
-      companyCarBiKRate: 0,
-      privateMedicalInsurancePremium: 0,
-    },
-    mpaaTriggered: false,
-    onStatutoryLeave: false,
-    scotlandResident: false,
-    priorYearPensionContributions: null,
-  },
-  parentB: null,
-  children: [
-    { dateOfBirth: '2022-06-15', isDisabled: false }
-  ],
+  parentA: { ...createEmptyParentIncome('Parent A'), grossSalary: 105_000 },
+  parentB: { ...createEmptyParentIncome('Parent B'), grossSalary: 40_000 },
+  children: [{ dateOfBirth: '2022-06-15', isDisabled: false }],
   childBenefitRegistered: true,
   childBenefitPaymentsElected: true,
-  estimatedAnnualChildcareSpend: 15_000,
+  estimatedAnnualChildcareSpend: 15_000, // fees before funded hours
+  providerHourlyRates: { under2: 14, age2: 12, age3to4: 11 }, // optional: your nursery's rates
   jurisdiction: 'england',
 };
 
@@ -151,29 +127,26 @@ console.log('Parent A ANI:', result.parentA.ani.adjustedNetIncome);
 console.log('TFC eligible:', result.tfc.eligible.status);
 // → 'not_eligible' (ANI > £100k)
 
-console.log('Free hours lost annual value:', result.freeHours.totalWorkingParentAnnualValue);
-// → 0 (ineligible)
-
-console.log('Top recommendation:', result.optimisationRecommendations[0]?.lever);
-// → 'salary_sacrifice_pension'
-
-console.log('Net gain from top recommendation:',
-  result.optimisationRecommendations[0]?.netAnnualGain);
-// → e.g. £8,430 net gain from restoring TFC + free hours
+const top = result.optimisationRecommendations[0];
+console.log(top?.lever, top?.netAnnualGain, top?.pensionPotIncrease);
+// Each recommendation is priced by re-running the whole household with the
+// action applied: netAnnualGain is the change in household disposable cash,
+// pensionPotIncrease is reported separately.
 ```
 
 ---
 
 ## Testing
 
-There is no automated test suite yet, and `npm test` is not configured. The only automated checks are the type-check and linter:
+The calculation engine has a Vitest suite in `src/engine-src/__tests__/`. Each test pins a household scenario to a known correct figure.
 
 ```bash
+npm test        # Vitest
 npm run build   # type-checks (tsc -b) and builds
 npm run lint    # ESLint
 ```
 
-Both must pass with no errors before a change is merged; the GitHub Pages deploy runs `npm run build` and fails on type errors. Check calculation changes by hand against the rules in [`rules.md`](rules.md). Adding a test suite for the engine in `src/engine-src/` (Vitest fits the existing Vite setup) is a welcome contribution.
+All three must pass before a change is merged. The GitHub Pages deploy runs `npm test` and `npm run build`. Add a test for any new calculation logic and check it against the rules in [`rules.md`](rules.md).
 
 ---
 
@@ -185,13 +158,15 @@ Both must pass with no errors before a change is merged; the GitHub Pages deploy
 | Income tax bands — Scotland (6 bands) | ✅ | ✅ |
 | Employee NIC (Class 1) | ✅ | ✅ |
 | Personal Allowance taper (£100k–£125,140) | ✅ | ✅ |
-| HICBC taper (£60k–£80k) | ✅ | ✅ |
+| HICBC taper (£60k–£80k, 1% per £200) | ✅ | ✅ |
 | 30-hour free childcare — England | ✅ | ✅ |
 | Tax-Free Childcare top-up | ✅ | ✅ |
-| EV salary sacrifice BiK rate | 3% | 5% |
+| EV salary sacrifice BiK rate | 3% | 4% |
 | Pension Annual Allowance (£60,000) | ✅ | ✅ |
 | Money Purchase Annual Allowance (£10,000) | ✅ | ✅ |
-| Carry-forward (3-year lookback) | ✅ | ✅ |
+| Carry-forward (3-year lookback, each year's own allowance) | ✅ | ✅ |
+| Savings and dividend tax (PSA, starting rate, dividend rates) | ✅ | ✅ |
+| Minimum income test (3-month earnings by age band) | ✅ | ✅ |
 
 **Known limitations** — the following are not currently modelled:
 
@@ -199,7 +174,6 @@ Both must pass with no errors before a change is merged; the GitHub Pages deploy
 - Tapered Annual Allowance (requires employer contribution inputs not yet in the UI)
 - IR35, director dividends, or complex ownership structures
 - Universal Credit childcare element
-- Mortgage interest restriction (workaround: enter net rental profit directly)
 - Salary sacrifice schemes beyond pension, EV, and cycle-to-work
 
 ---
@@ -210,9 +184,9 @@ This tool implements the four-step Adjusted Net Income calculation defined in IT
 
 | Step | What happens |
 |---|---|
-| **Step 1** | Sum all income: post-sacrifice salary, bonus, RSU vests, BiK (P11D value × BiK rate), cash allowances, non-ISA savings interest, non-ISA dividends, net rental income, self-employment profit, pension income |
+| **Step 1** | Sum all income: post-sacrifice salary, bonus, RSU vests, BiK (P11D value × BiK rate), cash allowances, non-ISA savings interest, non-ISA dividends, rental profit (before mortgage interest), self-employment profit, pension income; less net pay pension contributions |
 | **Step 2** | Deduct Gift Aid donations, grossed up ÷ 0.8 |
-| **Step 3** | Deduct personal pension / SIPP contributions, grossed up ÷ 0.8 |
+| **Step 3** | Deduct personal pension / SIPP contributions, grossed up ÷ 0.8 (up to the higher of £3,600 and relevant UK earnings) |
 | **Result** | ANI — the figure tested against all childcare thresholds and the personal allowance taper |
 
 > **Key insight:** Salary sacrifice, EV salary sacrifice, and cycle-to-work reduce gross salary *before* Step 1 — they reduce ANI by the full sacrifice amount and also save National Insurance, making them the most efficient way to reduce ANI.
@@ -227,13 +201,13 @@ Contributions are very welcome, particularly:
 - **2026/27 and later tax year configurations** — add to `src/engine-src/types/constants.ts`
 - **Tapered Annual Allowance** — requires employer contribution inputs
 - **Bug reports** — especially cases where the tool's output differs from HMRC's own calculators
-- **Automated tests** — a test suite for the calculation engine, especially eligibility boundary conditions
+- **More tests** — especially eligibility boundary conditions and cross-checks against HMRC's calculators
 
 **How to contribute:**
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/scotland-free-hours`
-3. Make your changes and make sure `npm run build` and `npm run lint` both pass
+3. Make your changes and make sure `npm test`, `npm run build` and `npm run lint` all pass
 4. Check any new calculation logic against `rules.md`
 5. Open a pull request with a clear description of the change
 
